@@ -1,6 +1,6 @@
 # Online CPDL
 
-Online CP-Dictionary Learning Algorithm 
+Online CP-Dictionary Learning Algorithm  \
 Generalizes CP-decomposition for tensors, dictionary learning algorithm for vector-valued signals, and Online Nonnegative Matrix Factorization.
 
 ![](Figures/fig1.png)
