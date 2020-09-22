@@ -314,7 +314,7 @@ class Online_CPDL():
             loading.update({'U' + str(mode_2be_subsampled): U_subsampled})
 
         result_dict.update({'loading': loading})
-        result_dict.update({'CPdict': self.out(loading)})
+        # result_dict.update({'CPdict': self.out(loading)}) ### this is very expensive
         result_dict.update({'CODE_COV_MX': A})
         result_dict.update({'time_error': time_error.T})
         result_dict.update({'iter': self.iterations})
@@ -422,11 +422,94 @@ class Online_CPDL():
                 print('!!! Reconstruction error at iteration %i = %f.3' % (step, error))
 
         result_dict.update({'loading': loading})
-        result_dict.update({'CPdict': self.out(loading)})
+        # result_dict.update({'CPdict': self.out(loading)}) ### this is very expensive
         result_dict.update({'time_error': time_error.T})
         result_dict.update({'iter': iter})
         result_dict.update({'n_components': self.n_components})
         np.save(save_folder + "/ALS_result_", result_dict)
+
+        if output_results:
+            return result_dict
+        else:
+            return loading
+
+    def MU(self,
+            iter=100,
+            ini_loading=None,
+            if_compute_recons_error=False,
+            save_folder='Output_files',
+            output_results=False):
+        '''
+        Given data tensor X and initial loading matrices W_ini, find loading matrices W by Multiplicative Update
+        Ref: Shashua, Hazan, "Non-Negative Tensor Factorization with Applications to Statistics and Computer Vision" (2005)
+        '''
+
+        X = self.X
+
+        if DEBUG:
+            print('sparse_code')
+            print('X.shape:', X.shape)
+            print('W.shape:', ini_loading.shape, '\n')
+
+        n_modes = len(X.shape)
+        if ini_loading is not None:
+            loading = ini_loading
+        else:
+            loading = {}
+            for i in np.arange(X.ndim):
+                loading.update({'U' + str(i): np.random.rand(X.shape[i], self.n_components)})
+
+        result_dict = {}
+        time_error = np.zeros(shape=[0, 2])
+        elapsed_time = 0
+
+        for step in np.arange(iter):
+            start = time.time()
+
+            for mode in np.arange(n_modes):
+                print('!!! X.shape', X.shape)
+                X_new = np.swapaxes(X, mode, -1)
+                U = loading.get('U' + str(mode))  # loading matrix to be updated
+                loading_new = loading.copy()
+                loading_new.update({'U' + str(mode): loading.get('U' + str(n_modes - 1))})
+                loading_new.update({'U' + str(n_modes - 1): U})
+                # Now update the last loading matrix U = 'U' + str(n_modes - 1)) by MU
+                # Matrize X along the last mode to get a NMF problem V \approx W*H, and use MU in LEE & SEUNG (1999)
+
+                # Form dictionary matrix
+                CPdict = self.out(loading_new, drop_last_mode=True)
+                print('!!! X_new.shape', X_new.shape)
+                W = np.zeros(shape=(len(X_new.reshape(-1, X_new.shape[-1])), self.n_components))
+                for j in np.arange(self.n_components):
+                    W[:, j] = CPdict.get('A' + str(j)).reshape(-1, 1)[:, 0]
+
+                V = X_new.reshape(-1, X_new.shape[-1])
+                print('!!! W.shape', W.shape)
+                print('!!! U.shape', U.shape)
+                print('!!! V.shape', V.shape)
+                U_new = U.T * (W.T @ V)/(W.T @ W @ U.T)
+                loading.update({'U' + str(mode): U_new.T})
+
+                # print('!!! Iteration %i: %i th loading matrix updated..' % (step, mode))
+
+            end = time.time()
+            elapsed_time += end - start
+
+            if if_compute_recons_error:
+                CPdict = self.out(loading, drop_last_mode=False)
+                recons = np.zeros(X.shape)
+                for j in np.arange(len(loading.keys())):
+                    recons += CPdict.get('A' + str(j))
+                error = np.linalg.norm((X - recons).reshape(-1, 1), ord=2)
+                time_error = np.append(time_error, np.array([[elapsed_time, error]]), axis=0)
+                print('!!! Reconstruction error at iteration %i = %f.3' % (step, error))
+
+        result_dict.update({'loading': loading})
+        # result_dict.update({'CPdict': self.out(loading)}) ### this is very expensive
+        result_dict.update({'time_error': time_error.T})
+        result_dict.update({'iter': iter})
+        result_dict.update({'n_components': self.n_components})
+        np.save(save_folder + "/MU_result_", result_dict)
 
         if output_results:
             return result_dict

@@ -54,6 +54,29 @@ def ALS_run(X,
     return result_dict
 
 
+def MU_run(X,
+           n_components=10,
+           iter=100,
+           regularizer=0,
+           ini_loading=None,
+           if_compute_recons_error=True,
+           save_foler='Output_files',
+           output_results=True):
+    OCPDL = Online_CPDL(X=X,
+                        n_components=n_components,
+                        ini_loading=None,
+                        ini_A=None,
+                        ini_B=None,
+                        alpha=regularizer)
+
+    result_dict = OCPDL.MU(iter=iter,
+                           ini_loading=ini_loading,
+                           if_compute_recons_error=if_compute_recons_error,
+                           save_folder=save_foler,
+                           output_results=output_results)
+    return result_dict
+
+
 def OCPDL_run(X,
               n_components=10,
               iter=100,
@@ -82,7 +105,7 @@ def OCPDL_run(X,
 
 
 def plot_benchmark_errors(ALS_result, OCPDL_result, name=1, errorbar=True):
-    n_componetns = ALS_result.get(n_components)
+    n_components = ALS_result.get('n_components')
 
     if not errorbar:
         ALS_errors = ALS_result.get('time_error')
@@ -148,27 +171,38 @@ def plot_benchmark_errors(ALS_result, OCPDL_result, name=1, errorbar=True):
 def main():
     loading = {}
     n_components = 5
-    iter = 100
+    iter = 20
     num_repeat = 10
     save_folder = "Output_files"
 
-    synthetic_data = False
-    run_ALS = True
+    synthetic_data = True
+    run_ALS = False
+    run_MU = True
     run_OCPDL = True
     plot_errors = True
+    file_identifier = 'new1'
 
     # Load data
     file_name = "Synthetic"
     if synthetic_data:
-        loading.update({'U0': np.random.rand(100, n_components)})
-        loading.update({'U1': np.random.rand(100, n_components)})
-        loading.update({'U2': np.random.rand(1000, n_components)})
+        np.random.seed(1)
+        U0 = np.random.rand(10, n_components)
+        np.random.seed(2)
+        U1 = np.random.rand(10, n_components)
+        np.random.seed(3)
+        U2 = np.random.rand(1000, n_components)
+
+        loading.update({'U0': U0})
+        loading.update({'U1': U1})
+        loading.update({'U2': U2})
         X = Out_tensor(loading)
     else:
         path = "Data/Twitter/top_1000_daily/data_tensor_top1000.pickle"
         dict = pickle.load(open(path, "rb"))
         X = dict[1]
         file_name = "Twitter"
+
+    file_name = file_name + "_" + file_identifier
 
     print('X.shape', X.shape)
 
@@ -194,6 +228,28 @@ def main():
         np.save(save_folder + "/ALS_result_" + str(file_name), result_dict_ALS)
         print('result_dict_ALS.keys()', result_dict_ALS.keys())
 
+    if run_MU:
+        list_full_timed_errors = []
+        for i in np.arange(num_repeat):
+            result_dict_MU = MU_run(X,
+                                    n_components=n_components,
+                                    iter=iter,
+                                    regularizer=0,
+                                    ini_loading=None,
+                                    if_compute_recons_error=True,
+                                    save_foler='Output_files',
+                                    output_results=True)
+            time_error = result_dict_MU.get('time_error')
+            list_full_timed_errors.append(time_error.copy())
+            print('!!! list_full_timed_errors', len(list_full_timed_errors))
+
+        timed_errors_trials = np.asarray(
+            list_full_timed_errors)  # shape (# trials) x (2 for time, error) x (iterations)
+        result_dict_ALS.update({'timed_errors_trials': timed_errors_trials})
+
+        np.save(save_folder + "/MU_result_" + str(file_name), result_dict_ALS)
+        print('result_dict_MU.keys()', result_dict_ALS.keys())
+
     if run_OCPDL:
         list_full_timed_errors = []
         for i in np.arange(num_repeat):
@@ -213,20 +269,24 @@ def main():
         timed_errors_trials = np.asarray(
             list_full_timed_errors)  # shape (# trials) x (2 for time, error) x (iterations)
         result_dict_OCPDL.update({'timed_errors_trials': timed_errors_trials})
+        print('!!! list_full_timed_errors', len(list_full_timed_errors))
 
         np.save(save_folder + "/OCPDL_result_" + str(file_name), result_dict_OCPDL)
-        print('result_dict_ALS.keys()', result_dict_OCPDL.keys())
+        print('result_dict_OCPDL.keys()', result_dict_OCPDL.keys())
 
     if plot_errors:
+        save_filename = file_name + ".npy"
         if synthetic_data:
-            ALS_result_Synthetic = np.load('Output_files/ALS_result_Synthetic.npy', allow_pickle=True).item()
-            OCPDL_result_Synthetic = np.load('Output_files/OCPDL_result_Synthetic.npy', allow_pickle=True).item()
-            plot_benchmark_errors(ALS_result_Synthetic, OCPDL_result_Synthetic, name='1', errorbar=True)
+            ALS_result_Synthetic = np.load('Output_files/ALS_result_' + save_filename, allow_pickle=True).item()
+            OCPDL_result_Synthetic = np.load('Output_files/OCPDL_result_' + save_filename, allow_pickle=True).item()
+            MU_result_Synthetic = np.load('Output_files/MU_result_' + save_filename, allow_pickle=True).item()
+            plot_benchmark_errors(ALS_result_Synthetic, OCPDL_result_Synthetic, name=file_name, errorbar=True)
 
         else:
-            ALS_result_Twitter = np.load('Output_files/ALS_result_Twitter.npy', allow_pickle=True).item()
-            OCPDL_result_Twitter = np.load('Output_files/OCPDL_result_Twitter.npy', allow_pickle=True).item()
-            plot_benchmark_errors(ALS_result_Twitter, OCPDL_result_Twitter, name='1', errorbar=True)
+            ALS_result_Twitter = np.load('Output_files/ALS_result_' + save_filename, allow_pickle=True).item()
+            OCPDL_result_Twitter = np.load('Output_files/OCPDL_result_' + save_filename, allow_pickle=True).item()
+            MU_result_Synthetic = np.load('Output_files/MU_result_' + save_filename, allow_pickle=True).item()
+            plot_benchmark_errors(ALS_result_Twitter, OCPDL_result_Twitter, name=file_name, errorbar=True)
 
 
 if __name__ == '__main__':
