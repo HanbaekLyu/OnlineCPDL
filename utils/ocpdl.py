@@ -110,7 +110,7 @@ class Online_CPDL():
             CPdict.update({'A' + str(i): A})
         return CPdict
 
-    def sparse_code_tensor(self, X, CPdict):
+    def sparse_code_tensor(self, X, CPdict, sparsity=None):
         '''
         Given data tensor X and CP dictionary CPdict, find sparse code c such that
         X \approx <CPdict, c>
@@ -140,9 +140,12 @@ class Online_CPDL():
 
         # initialize the SparseCoder with W as its dictionary
         # then find H such that X \approx W*H
-        if self.alpha == None:
+        if self.alpha is None and sparsity is not None:
             coder = SparseCoder(dictionary=W.T, transform_n_nonzero_coefs=None,
                                 transform_alpha=2, transform_algorithm='lasso_lars', positive_code=True)
+        elif sparsity is not None:
+            coder = SparseCoder(dictionary=W.T, transform_n_nonzero_coefs=None,
+                                transform_alpha=sparsity, transform_algorithm='lasso_lars', positive_code=True)
         else:
             coder = SparseCoder(dictionary=W.T, transform_n_nonzero_coefs=None,
                                 transform_alpha=self.alpha, transform_algorithm='lasso_lars', positive_code=True)
@@ -370,12 +373,15 @@ class Online_CPDL():
             ini_loading=None,
             if_compute_recons_error=False,
             save_folder='Output_files',
+            regularizer = None,
             output_results=False):
         '''
         Given data tensor X and initial loading matrices W_ini, find loading matrices W by Alternating Least Squares
         '''
 
         X = self.X
+        if regularizer is None:
+            regularizer = np.zeros((self.n_modes))
 
         if DEBUG:
             print('sparse_code')
@@ -403,7 +409,7 @@ class Online_CPDL():
                 loading_new = loading.copy()
                 loading_new.update({'U' + str(mode): loading.get('U' + str(n_modes - 1))})
                 loading_new.update({'U' + str(n_modes - 1): U})
-                Code = self.sparse_code_tensor(X_new, self.out(loading_new, drop_last_mode=True))
+                Code = self.sparse_code_tensor(X_new, self.out(loading_new, drop_last_mode=True), sparsity=regularizer[mode])
                 U_new = Code.reshape(U.shape)
                 loading.update({'U' + str(mode): U_new})
 
