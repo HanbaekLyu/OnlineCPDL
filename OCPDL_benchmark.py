@@ -34,7 +34,7 @@ def Out_tensor(loading):
 def ALS_run(X,
             n_components=10,
             iter=100,
-            regularizer=0,
+            regularizer=None,  # L1 regularizer for each factor matrix
             ini_loading=None,
             if_compute_recons_error=True,
             save_foler='Output_files',
@@ -212,7 +212,8 @@ def main():
             result_dict_ALS = ALS_run(X,
                                       n_components=n_components,
                                       iter=iter,
-                                      regularizer=0,
+                                      regularizer=[-1,0,0],  # inverse regularizer on time mode (to promote long-lasting topics),
+                                      # no regularizer on on words and tweets
                                       ini_loading=None,
                                       if_compute_recons_error=True,
                                       save_foler='Output_files',
