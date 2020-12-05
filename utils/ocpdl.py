@@ -11,6 +11,7 @@ from tensorly import unfold as tl_unfold
 from tensorly.decomposition import parafac
 from sklearn.decomposition import SparseCoder
 import time
+from tqdm import trange
 
 DEBUG = False
 
@@ -36,7 +37,6 @@ class Online_CPDL():
         Last node considered as the "batch mode"
         Seeks to find CP dictionary D = [A1, A2, ... , A_R], R=n_components, Ai = rank 1 tensor
         Such that each slice X[:,:,..,:, j] \approx <D, c> for some c
-
         n_components (int) = r = number of rank-1 CP factors
         iter (int): number of iterations where each iteration is a call to step(...)
         batch_size (int): number random of columns of X that will be sampled during each iteration
@@ -114,14 +114,11 @@ class Online_CPDL():
         '''
         Given data tensor X and CP dictionary CPdict, find sparse code c such that
         X \approx <CPdict, c>
-
         args:
             X (numpy array): data tensor with dimensions: (I1) x (I2) x ... x (In) x (In+1)
             CPdict (numpy dictionary): [A1, ... AR], R=n_componetns, Ai = rank 1 tensor
-
         returns:
             c (numpy array): sparse code with dimensions: topics (n_components) x samples (In+1)
-
         method:
             matricise X into (I1 ... In) x (In+1) and Ai's and use the usual sparse coding
         '''
@@ -183,12 +180,10 @@ class Online_CPDL():
     def update_dict(self, loading, A, B):
         '''
         Updates loading = [U1, .. , Un] using new aggregate matrices A and B
-
         args:
             W (numpy array): dictionary matrix with dimensions: data_dim (d) x topics (R)
             A (numpy array): aggregate matrix with dimensions: topics (r) x topics(R)
             B (numpy array): aggregate matrix with dimensions: (I1 ... In) x topics (R)
-
           returns:
             loading = [U1', .. , Un'] (numpy dict): each Ui has shape I_i x R
         '''
@@ -212,14 +207,12 @@ class Online_CPDL():
         Performs a single iteration of the online NMF algorithm from
         Han's Markov paper.
         Note: H (numpy array): code matrix with dimensions: topics (r) x samples(n)
-
         args:
             X (numpy array): data matrix with dimensions: data_dim (d) x samples (n)
             A (numpy array): aggregate matrix with dimensions: topics (r) x topics(r)
             B (numpy array): aggregate matrix with dimensions: topics (r) x data_dim(d)
             W (numpy array): dictionary matrix with dimensions: data_dim (d) x topics (r)
             t (int): current iteration of the online algorithm
-
         returns:
             Updated versions of H, A, B, and W after one iteration of the online NMF
             algorithm (H1, A1, B1, and W1 respectively)
@@ -233,7 +226,7 @@ class Online_CPDL():
             print(H1.shape)
 
         # Update aggregate matrices A and B
-        t = t.astype(float)
+        t = float(t)
         if self.beta == None:
             beta = 1
         else:
@@ -270,7 +263,7 @@ class Online_CPDL():
         time_error = np.zeros(shape=[0, 2])
         elapsed_time = 0
 
-        for i in np.arange(1, self.iterations):
+        for i in trange(1, self.iterations):
             start = time.time()
             X_batch = X
             idx = np.arange(X.shape[-1])
@@ -400,7 +393,7 @@ class Online_CPDL():
         time_error = np.zeros(shape=[0, 2])
         elapsed_time = 0
 
-        for step in np.arange(iter):
+        for step in trange(iter):
             start = time.time()
 
             for mode in np.arange(n_modes):
@@ -409,7 +402,7 @@ class Online_CPDL():
                 loading_new = loading.copy()
                 loading_new.update({'U' + str(mode): loading.get('U' + str(n_modes - 1))})
                 loading_new.update({'U' + str(n_modes - 1): U})
-                Code = self.sparse_code_tensor(X_new, self.out(loading_new, drop_last_mode=True), sparsity=regularizer[mode])
+                Code = self.sparse_code_tensor(X_new, self.out(loading_new, drop_last_mode=True), sparsity=0)
                 U_new = Code.reshape(U.shape)
                 loading.update({'U' + str(mode): U_new})
 
@@ -469,11 +462,11 @@ class Online_CPDL():
         time_error = np.zeros(shape=[0, 2])
         elapsed_time = 0
 
-        for step in np.arange(iter):
+        for step in trange(iter):
             start = time.time()
 
             for mode in np.arange(n_modes):
-                print('!!! X.shape', X.shape)
+                # print('!!! X.shape', X.shape)
                 X_new = np.swapaxes(X, mode, -1)
                 U = loading.get('U' + str(mode))  # loading matrix to be updated
                 loading_new = loading.copy()
@@ -484,15 +477,15 @@ class Online_CPDL():
 
                 # Form dictionary matrix
                 CPdict = self.out(loading_new, drop_last_mode=True)
-                print('!!! X_new.shape', X_new.shape)
+                # print('!!! X_new.shape', X_new.shape)
                 W = np.zeros(shape=(len(X_new.reshape(-1, X_new.shape[-1])), self.n_components))
                 for j in np.arange(self.n_components):
                     W[:, j] = CPdict.get('A' + str(j)).reshape(-1, 1)[:, 0]
 
                 V = X_new.reshape(-1, X_new.shape[-1])
-                print('!!! W.shape', W.shape)
-                print('!!! U.shape', U.shape)
-                print('!!! V.shape', V.shape)
+                # print('!!! W.shape', W.shape)
+                # print('!!! U.shape', U.shape)
+                # print('!!! V.shape', V.shape)
                 U_new = U.T * (W.T @ V)/(W.T @ W @ U.T)
                 loading.update({'U' + str(mode): U_new.T})
 
