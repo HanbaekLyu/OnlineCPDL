@@ -73,6 +73,7 @@ class Online_CPDL():
 
         self.history = history
         self.alpha = alpha
+        # print('???????alpha', alpha)
         self.beta = beta
         self.code = np.zeros(shape=(n_components, X.shape[-1]))  ### X.shape[-1] = batch_size
         self.subsample = subsample
@@ -201,6 +202,68 @@ class Online_CPDL():
                 W1[:, k] = (1 / np.maximum(1, LA.norm(W1[:, k]))) * W1[:, k]
             loading.update({'U' + str(j): W1})  ### Lindeberg replacement trick here
         return loading
+
+    def update_code_within_radius(self, X, W, H0, r, alpha=0, sub_iter=2, stopping_diff=0.1):
+        '''
+        Find \hat{H} = argmin_H ( | X - WH| + alpha|H| ) within radius r from H0
+        Use row-wise projected gradient descent
+        Do NOT sparsecode the whole thing and then project -- instable
+        12/5/2020 Lyu
+        '''
+
+        A = W.T @ W
+        B = W.T @ X
+        H1 = H0.copy()
+        i = 0
+        dist = 1
+        while (i < sub_iter) and (dist > stopping_diff):
+            H1_old = H1.copy()
+            for k in np.arange(H0.shape[0]):
+                grad = (np.dot(A[k, :], H1) - B[k, :] + alpha * np.ones(H0.shape[1]))
+                # H1[k, :] = H1[k,:] - (1 / (A[k, k] + np.linalg.norm(grad, 2))) * grad
+                H1[k, :] = H1[k, :] - (1 / (((i + 5) ** (0.5)) * (A[k, k] + 1))) * grad
+                H1[k, :] = np.maximum(H1[k, :], np.zeros(shape=(H1.shape[1],)))  # nonnegativity constraint
+                if r is not None:  # usual sparse coding without radius restriction
+                    d = np.linalg.norm(H1 - H0, 2)
+                    H1 = H0 + (r / max(r, d)) * (H1 - H0)
+                H0 = H1
+
+            dist = np.linalg.norm(H1 - H1_old, 2) / np.linalg.norm(H1_old, 2)
+            # print('!!! dist', dist)
+            H1_old = H1
+            i = i + 1
+            # print('!!!! i', i)  # mostly the loop finishes at i=1 except the first round
+
+        """
+
+        for i in np.arange(sub_iter):
+            for k in np.arange(H0.shape[0]):
+                grad = (np.dot(A[k,:], H1) - B[k,:]+alpha*np.ones(H0.shape[1]))
+                # H1[k, :] = H1[k,:] - (1 / (A[k, k] + np.linalg.norm(grad, 2))) * grad
+                H1[k, :] = H1[k,:] - (1 / ( ((i+1)**(1.5))* (A[k, k] + 1))) * grad
+                H1[k,:] = np.maximum(H1[k,:], np.zeros(shape=(H1.shape[1],)))  # nonnegativity constraint
+                d = np.linalg.norm(H1 - H0, 2)
+                H1 = H0 + (r/max(r, d))*(H1 - H0)
+                H0 = H1    
+                print('!!! d', d)    
+
+        """
+
+        """
+        for i in np.arange(sub_iter):
+            coder = SparseCoder(dictionary=W.T, transform_n_nonzero_coefs=None,
+                                    transform_alpha=alpha, transform_algorithm='lasso_lars', positive_code=True)
+
+
+            H1 = coder.transform(X.reshape(-1, X.shape[-1]))
+            print('!!! H1.shape', H1.shape)
+
+            d = np.linalg.norm(H1 - H0, 2)
+            H1 = H0 + (r/max(r, d))*(H1 - H0)
+            H0 = H1    
+        """
+
+        return H1
 
     def step(self, X, A, B, loading, t):
         '''
@@ -364,17 +427,16 @@ class Online_CPDL():
     def ALS(self,
             iter=100,
             ini_loading=None,
+            beta=None,
             if_compute_recons_error=False,
             save_folder='Output_files',
-            regularizer = None,
+            search_radius_const=1000,
             output_results=False):
         '''
         Given data tensor X and initial loading matrices W_ini, find loading matrices W by Alternating Least Squares
         '''
 
         X = self.X
-        if regularizer is None:
-            regularizer = np.zeros((self.n_modes))
 
         if DEBUG:
             print('sparse_code')
@@ -393,7 +455,98 @@ class Online_CPDL():
         time_error = np.zeros(shape=[0, 2])
         elapsed_time = 0
 
-        for step in trange(iter):
+        for step in trange(int(iter)):
+            start = time.time()
+
+            for mode in np.arange(n_modes):
+                X_new = np.swapaxes(X, mode, -1)
+
+                U = loading.get('U' + str(mode))  # loading matrix to be updated
+                loading_new = loading.copy()
+                loading_new.update({'U' + str(mode): loading.get('U' + str(n_modes - 1))})
+                loading_new.update({'U' + str(n_modes - 1): U})
+
+                X_new_mat = X_new.reshape(-1, X_new.shape[-1])
+                CPdict = self.out(loading_new, drop_last_mode=True)
+
+                W = np.zeros(shape=(X_new_mat.shape[0], self.n_components))
+                for j in np.arange(self.n_components):
+                    W[:, j] = CPdict.get('A' + str(j)).reshape(-1, 1)[:, 0]
+
+                if beta is None:  # usual nonnegative sparse coding
+                    Code = self.update_code_within_radius(X_new_mat, W, U.T, r=None, alpha=0)
+                else:
+                    if search_radius_const is None:
+                        search_radius_const = 10000
+
+                    search_radius = search_radius_const * (float(step + 1)) ** (-beta) / np.log(float(step + 2))
+
+                    # sparse code within radius
+                    Code = self.update_code_within_radius(X_new_mat, W, U.T, search_radius, alpha=0)
+
+                    # print('!!!!! search_radius_const', search_radius_const)
+                U_new = Code.T.reshape(U.shape)
+
+                loading.update({'U' + str(mode): U_new})
+
+                # print('!!! Iteration %i: %i th loading matrix updated..' % (step, mode))
+
+            end = time.time()
+            elapsed_time += end - start
+
+            if if_compute_recons_error:
+                CPdict = self.out(loading, drop_last_mode=False)
+                recons = np.zeros(X.shape)
+                for j in np.arange(len(loading.keys())):
+                    recons += CPdict.get('A' + str(j))
+                error = np.linalg.norm((X - recons).reshape(-1, 1), ord=2)
+                time_error = np.append(time_error, np.array([[elapsed_time, error]]), axis=0)
+                print('!!! Reconstruction error at iteration %i = %f.3' % (step, error))
+
+        result_dict.update({'loading': loading})
+        # result_dict.update({'CPdict': self.out(loading)}) ### this is very expensive
+        result_dict.update({'time_error': time_error.T})
+        result_dict.update({'iter': iter})
+        result_dict.update({'n_components': self.n_components})
+        np.save(save_folder + "/ALS_result_", result_dict)
+
+        if output_results:
+            return result_dict
+        else:
+            return loading
+
+    def ALS_old(self,
+                iter=100,
+                ini_loading=None,
+                beta=None,
+                if_compute_recons_error=False,
+                save_folder='Output_files',
+                search_radius_const=1000,
+                output_results=False):
+        '''
+        Given data tensor X and initial loading matrices W_ini, find loading matrices W by Alternating Least Squares
+        '''
+
+        X = self.X
+
+        if DEBUG:
+            print('sparse_code')
+            print('X.shape:', X.shape)
+            print('W.shape:', ini_loading.shape, '\n')
+
+        n_modes = len(X.shape)
+        if ini_loading is not None:
+            loading = ini_loading
+        else:
+            loading = {}
+            for i in np.arange(X.ndim):
+                loading.update({'U' + str(i): np.random.rand(X.shape[i], self.n_components)})
+
+        result_dict = {}
+        time_error = np.zeros(shape=[0, 2])
+        elapsed_time = 0
+
+        for step in trange(int(iter)):
             start = time.time()
 
             for mode in np.arange(n_modes):
@@ -402,8 +555,33 @@ class Online_CPDL():
                 loading_new = loading.copy()
                 loading_new.update({'U' + str(mode): loading.get('U' + str(n_modes - 1))})
                 loading_new.update({'U' + str(n_modes - 1): U})
-                Code = self.sparse_code_tensor(X_new, self.out(loading_new, drop_last_mode=True), sparsity=0)
-                U_new = Code.reshape(U.shape)
+
+                if beta is None:  # usual nonnegative sparse coding
+                    Code = self.sparse_code_tensor(X_new, self.out(loading_new, drop_last_mode=True), sparsity=0)
+                    U_new = Code.reshape(U.shape)
+
+
+                else:  # radius-restricted sparse coding
+                    if search_radius_const is None:
+                        search_radius_const = 10000
+
+                    search_radius = search_radius_const * (float(step + 1)) ** (-beta) / np.log(float(step + 2))
+
+                    # make a dictionary matrix from CPdict
+                    X_new_mat = X_new.reshape(-1, X_new.shape[-1])
+
+                    CPdict = self.out(loading_new, drop_last_mode=True)
+
+                    W = np.zeros(shape=(X_new_mat.shape[0], self.n_components))
+                    for j in np.arange(self.n_components):
+                        W[:, j] = CPdict.get('A' + str(j)).reshape(-1, 1)[:, 0]
+
+                    # sparse code within radius
+                    Code = self.update_code_within_radius(X_new_mat, W, U.T, search_radius, alpha=0)
+
+                    # print('!!!!! search_radius_const', search_radius_const)
+                    U_new = Code.T.reshape(U.shape)
+
                 loading.update({'U' + str(mode): U_new})
 
                 # print('!!! Iteration %i: %i th loading matrix updated..' % (step, mode))
@@ -433,11 +611,11 @@ class Online_CPDL():
             return loading
 
     def MU(self,
-            iter=100,
-            ini_loading=None,
-            if_compute_recons_error=False,
-            save_folder='Output_files',
-            output_results=False):
+           iter=100,
+           ini_loading=None,
+           if_compute_recons_error=False,
+           save_folder='Output_files',
+           output_results=False):
         '''
         Given data tensor X and initial loading matrices W_ini, find loading matrices W by Multiplicative Update
         Ref: Shashua, Hazan, "Non-Negative Tensor Factorization with Applications to Statistics and Computer Vision" (2005)
@@ -462,7 +640,7 @@ class Online_CPDL():
         time_error = np.zeros(shape=[0, 2])
         elapsed_time = 0
 
-        for step in trange(iter):
+        for step in trange(int(iter)):
             start = time.time()
 
             for mode in np.arange(n_modes):
@@ -486,7 +664,7 @@ class Online_CPDL():
                 # print('!!! W.shape', W.shape)
                 # print('!!! U.shape', U.shape)
                 # print('!!! V.shape', V.shape)
-                U_new = U.T * (W.T @ V)/(W.T @ W @ U.T)
+                U_new = U.T * (W.T @ V) / (W.T @ W @ U.T)
                 loading.update({'U' + str(mode): U_new.T})
 
                 # print('!!! Iteration %i: %i th loading matrix updated..' % (step, mode))
@@ -501,7 +679,7 @@ class Online_CPDL():
                     recons += CPdict.get('A' + str(j))
                 error = np.linalg.norm((X - recons).reshape(-1, 1), ord=2)
                 time_error = np.append(time_error, np.array([[elapsed_time, error]]), axis=0)
-                print('!!! Reconstruction error at iteration %i = %f.3' % (step, error))
+                # print('!!! Reconstruction error at iteration %i = %f.3' % (step, error))
 
         result_dict.update({'loading': loading})
         # result_dict.update({'CPdict': self.out(loading)}) ### this is very expensive
