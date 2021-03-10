@@ -111,13 +111,16 @@ class Online_CPDL():
             CPdict.update({'A' + str(i): A})
         return CPdict
 
-    def sparse_code_tensor(self, X, CPdict, sparsity=None):
+
+    def sparse_code_tensor(self, X, CPdict, H0=None, r=None, sparsity=0, sub_iter=[10], stopping_grad_ratio=0.01):
         '''
         Given data tensor X and CP dictionary CPdict, find sparse code c such that
         X \approx <CPdict, c>
         args:
             X (numpy array): data tensor with dimensions: (I1) x (I2) x ... x (In) x (In+1)
             CPdict (numpy dictionary): [A1, ... AR], R=n_componetns, Ai = rank 1 tensor
+            H0 (numpy array): initial code matrix with dimensions: (R) x (In+1)
+            r (float): the new code matrix H is found in the ball of radius r centered at H0
         returns:
             c (numpy array): sparse code with dimensions: topics (n_components) x samples (In+1)
         method:
@@ -138,6 +141,12 @@ class Online_CPDL():
 
         # initialize the SparseCoder with W as its dictionary
         # then find H such that X \approx W*H
+
+
+        c = update_code_within_radius(X.reshape(-1, X.shape[-1]), W, H0=H0, r=r, alpha=sparsity,
+                                        subsample_ratio=None, nonnegativity=True).T
+
+        """
         if self.alpha is None and sparsity is not None:
             coder = SparseCoder(dictionary=W.T, transform_n_nonzero_coefs=None,
                                 transform_alpha=2, transform_algorithm='lasso_lars', positive_code=True)
@@ -149,6 +158,8 @@ class Online_CPDL():
                                 transform_alpha=self.alpha, transform_algorithm='lasso_lars', positive_code=True)
         # alpha = L1 regularization parameter.
         c = coder.transform(X.reshape(-1, X.shape[-1]).T)
+        """
+
 
         # transpose H before returning to undo the preceding transpose on X
         return c
@@ -178,13 +189,14 @@ class Online_CPDL():
             B_U[r, :] = B_r.reshape(self.X.shape[j])
         return B_U
 
-    def update_dict(self, loading, A, B):
+    def update_dict(self, loading, A, B, r=None, nonnegativity=True, sub_iter=1):
         '''
         Updates loading = [U1, .. , Un] using new aggregate matrices A and B
         args:
             W (numpy array): dictionary matrix with dimensions: data_dim (d) x topics (R)
             A (numpy array): aggregate matrix with dimensions: topics (r) x topics(R)
             B (numpy array): aggregate matrix with dimensions: (I1 ... In) x topics (R)
+            r (float): search radius
           returns:
             loading = [U1', .. , Un'] (numpy dict): each Ui has shape I_i x R
         '''
@@ -196,76 +208,28 @@ class Online_CPDL():
             B_U = self.get_B_U(B, loading, j)  ### intermediate aggregate matrices updated for each j
             W1 = loading.get('U' + str(j)).copy()
             for k in np.arange(self.n_components):
-                # W1[:,k] = W1[:,k] - (1/W1[k, k])*(np.dot(W1, A[:,k]) - B.T[:,k])
-                W1[:, k] = W1[:, k] - (1 / (A_U[k, k] + 1)) * (np.dot(W1, A_U[:, k]) - B_U[k, :])
-                W1[:, k] = np.maximum(W1[:, k], np.zeros(shape=(W1.shape[0],)))
-                W1[:, k] = (1 / np.maximum(1, LA.norm(W1[:, k]))) * W1[:, k]
+                for i in np.arange(sub_iter):
+                    # W1[:,k] = W1[:,k] - (1/W1[k, k])*(np.dot(W1, A[:,k]) - B.T[:,k])
+                    grad = (np.dot(W1, A_U[:, k]) - B_U[k, :])
+                    grad_norm = np.linalg.norm(grad, 2)
+                    step_size = (1 / (((i + 1) ** (1)) * (A_U[k, k] + 1)))
+
+                    if r is not None:  # usual sparse coding without radius restriction
+                        d = step_size * grad_norm
+                        step_size = (r / max(r, d)) * step_size
+
+                    W1[:, k] = W1[:, k] - step_size * grad
+
+                    if nonnegativity:
+                        W1[:, k] = np.maximum(W1[:, k], np.zeros(shape=(W1.shape[0],)))
+
+                    W1[:, k] = (1 / np.maximum(1, LA.norm(W1[:, k]))) * W1[:, k] # normalization
+
             loading.update({'U' + str(j): W1})  ### Lindeberg replacement trick here
+
         return loading
 
-    def update_code_within_radius(self, X, W, H0, r, alpha=0, sub_iter=2, stopping_diff=0.1):
-        '''
-        Find \hat{H} = argmin_H ( | X - WH| + alpha|H| ) within radius r from H0
-        Use row-wise projected gradient descent
-        Do NOT sparsecode the whole thing and then project -- instable
-        12/5/2020 Lyu
-        '''
-
-        A = W.T @ W
-        B = W.T @ X
-        H1 = H0.copy()
-        i = 0
-        dist = 1
-        while (i < sub_iter) and (dist > stopping_diff):
-            H1_old = H1.copy()
-            for k in np.arange(H0.shape[0]):
-                grad = (np.dot(A[k, :], H1) - B[k, :] + alpha * np.ones(H0.shape[1]))
-                # H1[k, :] = H1[k,:] - (1 / (A[k, k] + np.linalg.norm(grad, 2))) * grad
-                H1[k, :] = H1[k, :] - (1 / (((i + 5) ** (0.5)) * (A[k, k] + 1))) * grad
-                H1[k, :] = np.maximum(H1[k, :], np.zeros(shape=(H1.shape[1],)))  # nonnegativity constraint
-                if r is not None:  # usual sparse coding without radius restriction
-                    d = np.linalg.norm(H1 - H0, 2)
-                    H1 = H0 + (r / max(r, d)) * (H1 - H0)
-                H0 = H1
-
-            dist = np.linalg.norm(H1 - H1_old, 2) / np.linalg.norm(H1_old, 2)
-            # print('!!! dist', dist)
-            H1_old = H1
-            i = i + 1
-            # print('!!!! i', i)  # mostly the loop finishes at i=1 except the first round
-
-        """
-
-        for i in np.arange(sub_iter):
-            for k in np.arange(H0.shape[0]):
-                grad = (np.dot(A[k,:], H1) - B[k,:]+alpha*np.ones(H0.shape[1]))
-                # H1[k, :] = H1[k,:] - (1 / (A[k, k] + np.linalg.norm(grad, 2))) * grad
-                H1[k, :] = H1[k,:] - (1 / ( ((i+1)**(1.5))* (A[k, k] + 1))) * grad
-                H1[k,:] = np.maximum(H1[k,:], np.zeros(shape=(H1.shape[1],)))  # nonnegativity constraint
-                d = np.linalg.norm(H1 - H0, 2)
-                H1 = H0 + (r/max(r, d))*(H1 - H0)
-                H0 = H1    
-                print('!!! d', d)    
-
-        """
-
-        """
-        for i in np.arange(sub_iter):
-            coder = SparseCoder(dictionary=W.T, transform_n_nonzero_coefs=None,
-                                    transform_alpha=alpha, transform_algorithm='lasso_lars', positive_code=True)
-
-
-            H1 = coder.transform(X.reshape(-1, X.shape[-1]))
-            print('!!! H1.shape', H1.shape)
-
-            d = np.linalg.norm(H1 - H0, 2)
-            H1 = H0 + (r/max(r, d))*(H1 - H0)
-            H0 = H1    
-        """
-
-        return H1
-
-    def step(self, X, A, B, loading, t):
+    def step(self, X, A, B, loading, t, search_radius_const=None, beta=None, sub_iter=1):
         '''
         Performs a single iteration of the online NMF algorithm from
         Han's Markov paper.
@@ -276,14 +240,16 @@ class Online_CPDL():
             B (numpy array): aggregate matrix with dimensions: topics (r) x data_dim(d)
             W (numpy array): dictionary matrix with dimensions: data_dim (d) x topics (r)
             t (int): current iteration of the online algorithm
+            search_radius_const (float)
+            beta (float): search radius = function(t, search_radius_const, beta)
         returns:
-            Updated versions of H, A, B, and W after one iteration of the online NMF
+            Updated versions of H, A, B, and W after one iteration of the online CPDL
             algorithm (H1, A1, B1, and W1 respectively)
         '''
 
         # Compute H1 by sparse coding X using dictionary W
         CPdict = self.out(loading)
-        H1 = self.sparse_code_tensor(X, CPdict)
+        H1 = self.sparse_code_tensor(X, CPdict) # no need to restrict search radius
 
         if DEBUG:
             print(H1.shape)
@@ -297,13 +263,18 @@ class Online_CPDL():
         A1 = (1 - (t ** (-beta))) * A + t ** (-beta) * np.dot(H1.T, H1)
         B1 = (1 - (t ** (-beta))) * B + t ** (-beta) * np.dot(X.reshape(-1, X.shape[-1]), H1)
 
-        # Update dictionary matrix
-        loading1 = self.update_dict(loading, A1, B1)
+        # Update dictionary matrices
+        if search_radius_const is None:
+                search_radius_const = 10000
+
+        search_radius = search_radius_const * (float(t+1))**(-beta)/np.log(float(t+2))
+        loading1 = self.update_dict(loading, A1, B1, r=search_radius, sub_iter=sub_iter)
         self.history = t + 1
         # print('history=', self.history)
         return H1, A1, B1, loading1
 
     def train_dict(self,
+                   sub_iter_dict_update=1,
                    mode_2be_subsampled=None,
                    output_results=True,
                    save_folder=None,
@@ -341,7 +312,7 @@ class Online_CPDL():
             # iteratively updating values of A and B
             # print('X.shape before training step', self.X.shape)
 
-            H, A, B, loading = self.step(X_batch, A, B, loading, t0 + i)
+            H, A, B, loading = self.step(X_batch, A, B, loading, t0 + i, beta=self.beta)
             end = time.time()
             elapsed_time += end - start
 
@@ -474,7 +445,7 @@ class Online_CPDL():
                     W[:, j] = CPdict.get('A' + str(j)).reshape(-1, 1)[:, 0]
 
                 if beta is None:  # usual nonnegative sparse coding
-                    Code = self.update_code_within_radius(X_new_mat, W, U.T, r=None, alpha=0)
+                    Code = update_code_within_radius(X_new_mat, W, U.T, r=None, alpha=0)
                 else:
                     if search_radius_const is None:
                         search_radius_const = 10000
@@ -482,7 +453,7 @@ class Online_CPDL():
                     search_radius = search_radius_const * (float(step + 1)) ** (-beta) / np.log(float(step + 2))
 
                     # sparse code within radius
-                    Code = self.update_code_within_radius(X_new_mat, W, U.T, search_radius, alpha=0)
+                    Code = update_code_within_radius(X_new_mat, W, U.T, search_radius, alpha=0)
 
                     # print('!!!!! search_radius_const', search_radius_const)
                 U_new = Code.T.reshape(U.shape)
@@ -515,100 +486,6 @@ class Online_CPDL():
         else:
             return loading
 
-    def ALS_old(self,
-                iter=100,
-                ini_loading=None,
-                beta=None,
-                if_compute_recons_error=False,
-                save_folder='Output_files',
-                search_radius_const=1000,
-                output_results=False):
-        '''
-        Given data tensor X and initial loading matrices W_ini, find loading matrices W by Alternating Least Squares
-        '''
-
-        X = self.X
-
-        if DEBUG:
-            print('sparse_code')
-            print('X.shape:', X.shape)
-            print('W.shape:', ini_loading.shape, '\n')
-
-        n_modes = len(X.shape)
-        if ini_loading is not None:
-            loading = ini_loading
-        else:
-            loading = {}
-            for i in np.arange(X.ndim):
-                loading.update({'U' + str(i): np.random.rand(X.shape[i], self.n_components)})
-
-        result_dict = {}
-        time_error = np.zeros(shape=[0, 2])
-        elapsed_time = 0
-
-        for step in trange(int(iter)):
-            start = time.time()
-
-            for mode in np.arange(n_modes):
-                X_new = np.swapaxes(X, mode, -1)
-                U = loading.get('U' + str(mode))  # loading matrix to be updated
-                loading_new = loading.copy()
-                loading_new.update({'U' + str(mode): loading.get('U' + str(n_modes - 1))})
-                loading_new.update({'U' + str(n_modes - 1): U})
-
-                if beta is None:  # usual nonnegative sparse coding
-                    Code = self.sparse_code_tensor(X_new, self.out(loading_new, drop_last_mode=True), sparsity=0)
-                    U_new = Code.reshape(U.shape)
-
-
-                else:  # radius-restricted sparse coding
-                    if search_radius_const is None:
-                        search_radius_const = 10000
-
-                    search_radius = search_radius_const * (float(step + 1)) ** (-beta) / np.log(float(step + 2))
-
-                    # make a dictionary matrix from CPdict
-                    X_new_mat = X_new.reshape(-1, X_new.shape[-1])
-
-                    CPdict = self.out(loading_new, drop_last_mode=True)
-
-                    W = np.zeros(shape=(X_new_mat.shape[0], self.n_components))
-                    for j in np.arange(self.n_components):
-                        W[:, j] = CPdict.get('A' + str(j)).reshape(-1, 1)[:, 0]
-
-                    # sparse code within radius
-                    Code = self.update_code_within_radius(X_new_mat, W, U.T, search_radius, alpha=0)
-
-                    # print('!!!!! search_radius_const', search_radius_const)
-                    U_new = Code.T.reshape(U.shape)
-
-                loading.update({'U' + str(mode): U_new})
-
-                # print('!!! Iteration %i: %i th loading matrix updated..' % (step, mode))
-
-            end = time.time()
-            elapsed_time += end - start
-
-            if if_compute_recons_error:
-                CPdict = self.out(loading, drop_last_mode=False)
-                recons = np.zeros(X.shape)
-                for j in np.arange(len(loading.keys())):
-                    recons += CPdict.get('A' + str(j))
-                error = np.linalg.norm((X - recons).reshape(-1, 1), ord=2)
-                time_error = np.append(time_error, np.array([[elapsed_time, error]]), axis=0)
-                print('!!! Reconstruction error at iteration %i = %f.3' % (step, error))
-
-        result_dict.update({'loading': loading})
-        # result_dict.update({'CPdict': self.out(loading)}) ### this is very expensive
-        result_dict.update({'time_error': time_error.T})
-        result_dict.update({'iter': iter})
-        result_dict.update({'n_components': self.n_components})
-        np.save(save_folder + "/ALS_result_", result_dict)
-
-        if output_results:
-            return result_dict
-        else:
-            return loading
 
     def MU(self,
            iter=100,
@@ -692,3 +569,70 @@ class Online_CPDL():
             return result_dict
         else:
             return loading
+
+
+### Helper functions
+
+
+def update_code_within_radius(X, W, H0=None, r=None, alpha=0, sub_iter=[10], stopping_grad_ratio=0.05, subsample_ratio=None, nonnegativity=True):
+    '''
+    Find \hat{H} = argmin_H ( | X - WH| + alpha|H| ) within radius r from H0
+    Use row-wise projected gradient descent
+    Do NOT sparsecode the whole thing and then project -- instable
+    12/5/2020 Lyu
+
+    For NTF problems, X is usually tall and thin so it is better to subsample from rows
+    12/25/2020 Lyu
+
+    Apply single round of AdaGrad for rows, stop when gradient norm is small and do not make update
+    12/27/2020 Lyu
+    '''
+
+    # print('!!!! X.shape', X.shape)
+    # print('!!!! W.shape', W.shape)
+    # print('!!!! H0.shape', H0.shape)
+    if H0 is None:
+        H0 = np.random.rand(W.shape[1], X.shape[1])
+
+    H1 = H0.copy()
+    i = 0
+    dist = 1
+    idx = np.arange(X.shape[0])
+    # print('!!! X.shape', X.shape)
+    while (i < np.random.choice(sub_iter)):
+        if_continue = np.ones(H0.shape[0])  # indexed by rows of H
+        H1_old = H1.copy()
+        b = 10
+        if (subsample_ratio is not None) and (X.shape[0]>X.shape[1]):
+            idx = np.random.randint(X.shape[0], size=X.shape[0]//subsample_ratio)
+            A = W[idx,:].T @ W[idx,:]
+            B = W[idx,:].T @ X[idx,:]
+        elif (subsample_ratio is not None) and (X.shape[0]<= X.shape[1]):
+            idx = np.random.randint(X.shape[1], size=X.shape[1]//subsample_ratio)
+            A = W[:,:].T @ W[:,:]
+            B = W[:,:].T @ X[:,idx]
+        else:
+            A = W[:,:].T @ W[:,:]
+            B = W[:,:].T @ X[:,:]
+
+        for k in [k for k in np.arange(H0.shape[0]) if if_continue[k]>0.5]:
+
+            grad = (np.dot(A[k, :], H1) - B[k, :] + alpha * np.ones(H0.shape[1]))
+            grad_norm = np.linalg.norm(grad, 2)
+            step_size = (1 / (((i + 1) ** (1)) * (A[k, k] + 1)))
+            if r is not None:  # usual sparse coding without radius restriction
+                d = step_size * grad_norm
+                step_size = (r / max(r, d)) * step_size
+
+
+            if step_size * grad_norm / np.linalg.norm(H1_old, 2) > stopping_grad_ratio:
+                H1[k, :] = H1[k, :] - step_size * grad
+            else:
+                if_continue[k] = 1  # stop making changes when negligible
+            if nonnegativity:
+                H1[k,:] = np.maximum(H1[k,:], np.zeros(shape=(H1.shape[1],)))  # nonnegativity constraint
+
+        i = i + 1
+
+
+    return H1
