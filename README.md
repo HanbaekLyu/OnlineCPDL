@@ -4,8 +4,8 @@ Online CP-Dictionary Learning Algorithm  \
 Generalizes CP-decomposition for tensors, dictionary learning algorithm for vector-valued signals, and Online Nonnegative Matrix Factorization.
 
 ![](Figures/fig1.png)
-![](Figures/fig2.png)
 ![](Figures/fig4.png)
+![](Figures/fig3.png)
 
 ## References
 
