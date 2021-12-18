@@ -6,6 +6,7 @@ from sklearn.feature_extraction.image import extract_patches_2d
 from sklearn.feature_extraction.image import reconstruct_from_patches_2d
 from sklearn.decomposition import SparseCoder
 from time import time
+import matplotlib.gridspec as gridspec
 import itertools
 import matplotlib.pyplot as plt
 
@@ -210,6 +211,146 @@ class Video_Reconstructor_OCPDL():
         plt.show()
         '''
 
+    def display_dictionary_CP_combined(self, W, save_folder, grid=None):
+        k = self.patch_size
+
+        U0 = W.get('U0') ### dict for time mode
+        U1 = W.get('U1') ### dict for shape mode
+
+        print('U0.shape', U0.shape)
+        print('U0_0', U0[:,0])
+        print('U1.shape', U1.shape)
+
+
+        ### Use the ordering of spatial modes from the brightest to the darkest
+        importance = np.sum(np.abs(U1), axis=0)  # l1 norms of colums of U1
+        idx = np.argsort(importance)
+        #idx = np.flip(idx)
+
+        ### Plot separately the first atom
+
+        for i in np.arange(U1.shape[1]):
+            fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(6, 6),
+                                     subplot_kw={'xticks': [], 'yticks': []})
+            patch = U1[:,idx[i]].reshape(self.frameHeight, self.frameWidth, 3)
+            ax.imshow((np.max(patch) - patch)/np.max(patch))
+            # plt.subplots_adjust(0.08, 0.02, 0.92, 0.85, 0.08, 0.23)
+            plt.savefig(save_folder + '/fig_topics_new_atom'+str(i))
+
+
+
+        ### Make gridspec
+        fig1 = plt.figure(figsize=(13.1, 4), constrained_layout=False)
+        # make outer gridspec
+        outer_rows = 1
+        outer_cols = 3
+        outer_grid = gridspec.GridSpec(nrows=outer_rows, ncols=outer_cols, wspace=0.02, hspace=0.05, width_ratios=[4.1, 5, 2])
+
+        if grid is not None:
+            num_atoms2show = grid[0]*grid[1]
+        else:
+            num_atoms2show = U1.shape[1]
+
+
+        ### Set up number of rows and colums for spatial atoms
+        num_rows = np.floor(np.sqrt(num_atoms2show)).astype(int)
+        if num_rows ** 2 == num_atoms2show:
+            num_cols = num_rows
+        else:
+            num_cols = num_rows + 1
+        if grid is not None:
+            [num_rows, num_cols] = grid
+
+
+        # U0 = U0[:,idx[:num_atoms2show]]
+        # U1 = U1[:,idx[:num_atoms2show]]
+        print('!!! U0.shape', U0.shape)
+        print('!!! U1.shape', U1.shape)
+
+        Ndict_wspace = 0.05
+        Ndict_hspace = 0.05
+
+        # make nested gridspecs
+        for i in range(outer_rows * outer_cols):
+            if i % outer_cols == 0:
+                atom_num = 9
+                inner_grid = outer_grid[i].subgridspec(1, 1, wspace=Ndict_wspace, hspace=Ndict_hspace)
+                ax = fig1.add_subplot(inner_grid[0, 0])
+                patch = U1[:,idx[atom_num-1]].reshape(self.frameHeight, self.frameWidth, 3)
+                ax.imshow((np.max(patch) - patch)/np.max(patch))
+                #ax.title.set_text('Spatial Activation Atom # '+str(atom_num))
+
+            elif i % outer_cols == 1:
+
+                # display grid of spatial atoms
+                print('!!!! num_rows', num_rows)
+                print('!!!! num_cols', num_cols)
+
+
+                inner_grid = outer_grid[i].subgridspec(num_rows, num_cols, wspace=Ndict_wspace, hspace=Ndict_hspace)
+                for j in np.arange(num_atoms2show):
+                    a = j // num_cols
+                    b = j % num_cols
+
+                    ax = fig1.add_subplot(inner_grid[a, b])
+                    patch = U1[:,idx[j]].reshape(self.frameHeight, self.frameWidth, 3)
+                    ### for color inversion
+                    ax.imshow((np.max(patch) - patch)/np.max(patch))
+                    #ax.set_xlabel('%1.2f' % importance[idx[j]], fontsize=10)  # get the largest first
+                    #ax.xaxis.set_label_coords(0.5, -0.05)  # adjust location of importance appearing beneath patches
+                    ax.set_xticks([])
+                    ax.set_yticks([])
+                    #if a == 0 and b == 2:
+                    #    ax.title.set_text('Spatial Activation')
+
+            else:
+                # display temporal prevalence
+                inner_grid = outer_grid[i].subgridspec(1, num_atoms2show+1, wspace=0.5, hspace=0.05) # +1 for colorbar
+                for j in np.arange(num_atoms2show):
+                    ax = fig1.add_subplot(inner_grid[0, j])
+                    b = U0[:, idx[j]].reshape(1, -1).T
+                    im2 = ax.imshow(b, cmap="viridis",  ## black = 1, white = 0
+                              interpolation='nearest', aspect='auto', vmin=0, vmax=np.max(U0))
+                    ax.set_xticks([])
+                    j1 = j+1
+                    ax.set_xlabel('%i' % j1, fontsize=9)  # get the largest first
+                    # ax.xaxis.set_label_coords(0.5, 0.05)  # adjust location of importance appearing beneath patches
+                    if j1 % 2 == 1:
+                        ax.xaxis.set_label_position('top')
+                    else:
+                        ax.xaxis.set_label_position('bottom')
+
+                    if j<num_atoms2show-1:
+                        ax.set_yticks([])
+                    else:
+                        ax.set_ylabel('time')
+                        # yticks = np.arange(0,U0.shape[0],3)*0.04
+                        # yticks = [str(value) for value in yticks]
+                        # ax.set_yticks(yticks)
+                        ax.yaxis.tick_right()
+                        ax.yaxis.set_label_position("right")
+
+
+                    #if j == num_atoms2show // 2:
+                    #    ax.title.set_text('Temporal Activation')
+
+                    #if j==U0.shape[1]-1:
+                    #    divider = make_axes_locatable(ax)
+                    #    cax = divider.append_axes('right', size='50%', pad=0.05)
+                    #    fig1.colorbar(im2, cax=cax, orientation='vertical')
+
+
+        # plt.tight_layout()
+        # plt.suptitle('Shape mode', fontsize=16)
+        plt.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.9, wspace=0.01, hspace=0.01)
+        #plt.figtext(0.2, 1, 'Spatial activation pattern # ' + str(i), fontsize=12)
+        #plt.figtext(0.55, 1, "Spatial Activation", ha="center", va="top", fontsize=12)
+        #plt.figtext(0.9, 1, "Temporal Activation", ha="center", va="top", fontsize=12)
+
+
+        plt.savefig(save_folder + '/fig_combined_modes')
+
+
     def display_dictionary(self, W, learn_joint_dict=False, color_mode=False, display_out_dict=True):
         k = self.patch_size
         num_rows = np.ceil(np.sqrt(self.n_components)).astype(int)
@@ -253,7 +394,7 @@ class Video_Reconstructor_OCPDL():
     def train_dict(self):
         print('training CP dictionaries from patches...')
         '''
-        Trains dictionary based on patches from an i.i.d. sequence of batch of patches 
+        Trains dictionary based on patches from an i.i.d. sequence of batch of patches
         CP dictionary learning
         '''
         W = self.W
@@ -344,10 +485,3 @@ class Video_Reconstructor_OCPDL():
             np.save('Video_dictionary/video_recons_color', A_recons)
         plt.imshow(A_recons)
         return A_recons
-
-
-
-
-
-
-

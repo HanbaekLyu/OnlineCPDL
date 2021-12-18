@@ -12,9 +12,28 @@ from sklearn.decomposition import SparseCoder
 from time import time
 import itertools
 import matplotlib.pyplot as plt
-
 plt.rcParams['font.family'] = 'serif'
 plt.rcParams['font.serif'] = ['Times New Roman'] + plt.rcParams['font.serif']
+plt.rcParams["axes.edgecolor"] = "0.6"
+plt.rcParams["axes.labelsize"] = 26
+plt.rcParams["figure.dpi"] = 200
+plt.rcParams["font.family"] = "serif"
+plt.rcParams["grid.color"] = "0.85"
+plt.rcParams["savefig.dpi"] = 300
+plt.rcParams["legend.columnspacing"] *= 0.8
+plt.rcParams["legend.edgecolor"] = "0.6"
+plt.rcParams["legend.markerscale"] = 1.0
+plt.rcParams["legend.framealpha"] = "1"
+plt.rcParams["legend.handlelength"] *= 1.5
+plt.rcParams["legend.numpoints"] = 2
+plt.rcParams["text.usetex"] = True
+plt.rcParams["xtick.major.pad"] = -3
+plt.rcParams["ytick.major.pad"] = -2
+plt.rcParams["xtick.labelsize"] = 24
+plt.rcParams["ytick.labelsize"] = 24
+plt.rcParams["figure.figsize"] = [12.0, 6.0]
+
+
 import matplotlib.font_manager as font_manager
 import matplotlib.gridspec as gridspec
 import matplotlib
@@ -74,7 +93,7 @@ class Tweets_Reconstructor_OCPDL():
         dict = pickle.load(open(self.path, "rb"))
         self.X_words = dict[0]  ### list of words
         # self.X_retweetcounts = dict[1]  ### retweet counts
-        self.data = dict[1] * 10000  ### [timeframes, words, tweets]  ### use dict[2] for old tweet data
+        self.data = dict[1] * 10000 ### [timeframes, words, tweets]  ### use dict[2] for old tweet data
         ### scale by 100 since the original tfidf weigts are too small -- result of learning is noisy
         print('data_shape ([timeframes, words, tweets])', self.data.shape)
 
@@ -223,9 +242,10 @@ class Tweets_Reconstructor_OCPDL():
         plt.tight_layout()
         plt.suptitle('Topics mode', fontsize=16)
         plt.subplots_adjust(0.08, 0.02, 0.92, 0.85, 0.08, 0.08)
-        plt.savefig('Tweets_dictionary/fig_topics' + '_' + str(save_fig_name))
+        plt.savefig('Tweets_dictionary/fig_topics' +'_'+ str(save_fig_name))
         if if_plot:
             plt.show()
+
 
         ### time mode
         fig, axs = plt.subplots(nrows=1, ncols=1, figsize=(6, 6),
@@ -233,8 +253,8 @@ class Tweets_Reconstructor_OCPDL():
 
         ### Normalize code matrix
         for i in np.arange(self.n_components):
-            U0[:, i] /= np.sum(U0[:, i])
-            print('np.sum(U0[:,i])', np.sum(U0[:, i]))
+            U0[:,i] /= np.sum(U0[:,i])
+            print('np.sum(U0[:,i])', np.sum(U0[:,i]))
 
         axs.imshow(U0, cmap="viridis", interpolation='nearest', aspect='auto')
         print('time_mode_shape')
@@ -243,7 +263,7 @@ class Tweets_Reconstructor_OCPDL():
         plt.tight_layout()
         plt.suptitle('Time mode', fontsize=16)
         plt.subplots_adjust(0.08, 0.02, 0.92, 0.85, 0.00, 0.00)
-        plt.savefig('Tweets_dictionary/fig_temporal_modes' + '_' + str(save_fig_name))
+        plt.savefig('Tweets_dictionary/fig_temporal_modes' +'_'+ str(save_fig_name))
         if if_plot:
             plt.show()
 
@@ -265,12 +285,38 @@ class Tweets_Reconstructor_OCPDL():
             plt.show()
         '''
 
+
+    def display_topics_denali(self, W):
+
+        U0 = W.get('U0')  ### dict for time mode
+        U1 = W.get('U1')  ### dict for words mode (topics)
+        U2 = W.get('U2')  ### dict for tweets mode
+
+        topics_freqs = []
+        for i, topic in enumerate(U1.T):
+            topics_freqs.append({self.X_words[i]: topic[i] for i in reversed(topic.argsort()[-10:])})
+            print("Topic {}: {}".format(i, ', '.join(x for x in reversed(np.array(self.X_words)[topic.argsort()[-10:]]))))
+
+        topics_freqs = condense_topic_keywords(topics_freqs)
+        num_keywords = 5
+
+        # Make word and frequency lists for each topic.
+        sorted_topics = [sorted(topic.items(), key=lambda item: item[1], reverse=True) for topic in topics_freqs]
+        word_lists = [[item[0] for item in topic[:num_keywords]] for topic in sorted_topics]
+        freq_lists = [[item[1] for item in topic[:num_keywords]] for topic in sorted_topics]
+
+        # Plot topics barchart.
+        plotting.plot_keyword_bars(freq_lists, word_lists, figsize=[20.0, 10.0])
+        # plt.savefig('NMF_keyword_barplot_{}_{}_topics.png'.format(data_name, r))
+        plt.show()
+
+
     def display_sequential_dictionary_CP(self,
                                          seq_dict,
                                          save_fig_name=None,
                                          num_word_sampling_from_topics=100,
                                          num_top_words_from_each_topic=10,
-                                         list_of_topics2display=None,
+                                         list_of_topics2display = None,
                                          if_plot=False,
                                          if_sample_topic_words=False):
         ### Initial setup
@@ -292,12 +338,14 @@ class Tweets_Reconstructor_OCPDL():
         fig1 = plt.figure(figsize=(15, 9), constrained_layout=False)
         # make outer gridspec
 
+
         outer_grid = gridspec.GridSpec(nrows=nrows, ncols=ncols, wspace=0.05, hspace=0.05)
         # make nested gridspecs
         for i in range(nrows * ncols):
             if i % ncols == 0:
+
                 ### move to the next CP dictionary stored in seq_dict, which will be plotted in the next row
-                W = seq_dict.get('W' + str(i // ncols))  ### use floor division //
+                W = seq_dict.get('W' + str(i  // ncols))  ### use floor division //
                 U0 = W.get('U0')  ### dict for time mode
                 U1 = W.get('U1')  ### dict for words mode (topics)
                 U2 = W.get('U2')  ### dict for tweets mode
@@ -337,6 +385,7 @@ class Tweets_Reconstructor_OCPDL():
                     dist = patch_reduced.copy() / np.sum(
                         patch_reduced)  ### probability distribution on the words given by the ith topic vector
 
+
                     if if_sample_topic_words:
                         ### Randomly sample a word from the corpus according to the PMF "dist" multiple times
                         ### to generate text data corresponding to the ith topic, and then generate its wordcloud
@@ -353,6 +402,7 @@ class Tweets_Reconstructor_OCPDL():
                         list_words = []
                         for j in range(num_top_words_from_each_topic):
                             list_words.append(self.X_words[I[j]])
+
 
                     Y = " ".join(list_words)
                     stopwords = STOPWORDS
@@ -392,80 +442,6 @@ class Tweets_Reconstructor_OCPDL():
         if if_plot:
             plt.show()
         '''
-
-    def display_heatmap_topics(self, W):
-        # We consider a TFIDF weight tensor of dimension timeframes-by-features-by-documents
-        # - features (list): list of all features (words) extracted from documents
-        # - retweet_counts (list): list containing the number of retweets for each corresponding tweet in corpus.
-        # - X (ndarray): TFIDF weight tensor of dimension timeframes-by-features-by-documents
-
-        U0 = W.get('U0')  ### dict for time mode
-        U1 = W.get('U1')  ### dict for words mode (topics)
-        U2 = W.get('U2')  ### dict for tweets mode
-
-        r = self.n_components
-        data_name = "top1000daily"
-        folder_name = "Tweets_dictionary"
-
-        # Condense topic representations.
-        topics_freqs = []
-        for i, topic in enumerate(U1.T):
-            topics_freqs.append({self.X_words[i]: topic[i] for i in reversed(topic.argsort()[-r:])})
-            print(
-                "Topic {}: {}".format(i, ', '.join(x for x in reversed(np.array(self.X_words)[topic.argsort()[-10:]]))))
-
-        topics_freqs = condense_topic_keywords(topics_freqs)
-        num_keywords = 5
-
-        sns.set(style="whitegrid", context="talk")
-
-        # Make word and frequency lists for each topic.
-        sorted_topics = [
-            sorted(topic.items(), key=lambda item: item[1], reverse=True)
-            for topic in topics_freqs
-        ]
-        word_lists = [[item[0] for item in topic[:num_keywords]] for topic in sorted_topics]
-        freq_lists = [[item[1] for item in topic[:num_keywords]] for topic in sorted_topics]
-        # Print latex table with shaded topics.
-        table_filename = "NMF_{}_topic_keywords_{}_{}_topics.tex".format(
-            folder_name, data_name, r
-        )
-        # table_filepath = os.path.join(overleaf_dir, "Tables", table_filename)
-        # with open(table_filepath, "w") as file:
-        #   file.write(plotting.shaded_latex_topics(freq_lists, word_lists))
-        topic_latex = shaded_latex_topics(freq_lists, word_lists, min_shade=0.6)
-        print('!!! topic_latex', topic_latex)
-
-        num_time_slices = self.frameCount
-
-        avg_topics_over_time = U0.T
-        for i in np.arange(U0.shape[0]):
-            avg_topics_over_time[:, i] = avg_topics_over_time[:, i] / np.sum(avg_topics_over_time[:, i])
-
-        # #### Visualize topic distributions
-        start = datetime.datetime(2020, 2, 1, 0)
-        dates = [i * datetime.timedelta(days=1) + start for i in range(num_time_slices)]
-        date_strs = [date.strftime("%m-%d") for date in dates]
-        # y_tick_labels = ["{}: {}".format(word_lists[i][0:2], i + 1) for i in range(r)]
-        y_tick_labels = [
-            str(word_lists[i][0]) + ", " + str(word_lists[i][1]) + ", " + str(word_lists[i][2]) + " " + str(i + 1) for i
-            in range(r)]
-
-        fig, ax = heatmap(
-            avg_topics_over_time,
-            x_tick_labels=date_strs,
-            x_label="Date",
-            y_tick_labels=y_tick_labels,
-            y_label="Topic",
-        )
-        # Save figure.
-        fig_filename = "NMF_tweet_representation_of_topics_{}_{}_topics".format(
-            data_name, r
-        )
-        fig_filepath = "Tweets_dictionary/" + fig_filename
-        save_figure(fig, filepath=fig_filepath)
-        plt.show()
-
     def show_array(self, arr):
         plt.figure()
         plt.imshow(arr, cmap="gray")
@@ -485,11 +461,11 @@ class Tweets_Reconstructor_OCPDL():
                    beta=None):
         print('training CP dictionaries from patches...')
         '''
-        Trains dictionary based on patches from an i.i.d. sequence of batch of patches 
+        Trains dictionary based on patches from an i.i.d. sequence of batch of patches
         CP dictionary learning
         '''
         if ini_dict is not None:
-            W = ini_dict  ### Damn!! Don't make this None it will reset the seq_learning function
+            W = ini_dict ### Damn!! Don't make this None it will reset the seq_learning function
         else:
             W = None
 
@@ -532,15 +508,15 @@ class Tweets_Reconstructor_OCPDL():
                 self.ntf = Online_CPDL(X,
                                        self.n_components,
                                        ini_loading=W,
-                                       ini_A=At,
-                                       ini_B=Bt,
+                                       ini_A = At,
+                                       ini_B = Bt,
                                        iterations=sub_iter,
                                        batch_size=self.batch_size,
                                        alpha=self.alpha,
                                        history=ini_his,
                                        subsample=False,
                                        beta=beta)
-                W, At, Bt, H = self.ntf.train_dict()
+                W, At, Bt, H = self.ntf.train_dict(output_results=False)
 
                 print('in training: ini_his = ', ini_his)
 
@@ -557,7 +533,7 @@ class Tweets_Reconstructor_OCPDL():
                                        beta=beta)
                 # out of "sample_size" columns in the data matrix, sample "batch_size" randomly and train the dictionary
                 # for "iterations" iterations
-                W, At, Bt, H = self.ntf.train_dict()
+                W, At, Bt, H = self.ntf.train_dict(output_results=False)
 
                 # code += H
             print('Current iteration %i out of %i' % (t, iter))
@@ -578,16 +554,16 @@ class Tweets_Reconstructor_OCPDL():
         print('Sequentially training CP dictionaries from patches...')
         '''
         Trains dictionary based on patches from a sequence of batch of patches
-        slide the window only forward 
-        if refresh_history=True, aggregation matrices are reset every iteration  
+        slide the window only forward
+        if refresh_history=True, aggregation matrices are reset every iteration
         CP dictionary learning
         '''
         W = self.W
         At = None
         Bt = None
         t0 = 0
-        t = 0  ### If history starts at 0, then t^{-\beta} goes from 0 to 1 to very small.
-        ### To ensure monotonicity, start at t=1.
+        t = 0 ### If history starts at 0, then t^{-\beta} goes from 0 to 1 to very small.
+              ### To ensure monotonicity, start at t=1.
         seq_dict = {}
 
         while t0 + t * slide_window_by + self.segment_length <= self.frameCount:
@@ -603,7 +579,7 @@ class Tweets_Reconstructor_OCPDL():
             if refresh_history_as is not None:
                 ini_history = refresh_history_as
             else:
-                ini_history = (t + 1) * self.iterations  ### To ensure monotonicity, start at t=1.
+                ini_history = (t+1)*self.iterations  ### To ensure monotonicity, start at t=1.
 
             ### data tensor still too large -- subsample from the tweets mode:
 
@@ -615,12 +591,13 @@ class Tweets_Reconstructor_OCPDL():
             print('ini_history', ini_history)
 
             if t > 0:
-                print('U0 right before new phase', ini_dict.get('U0')[0, 0])
+                print('U0 right before new phase', ini_dict.get('U0')[0,0])
+
 
             W, At, Bt, H = self.train_dict(data=X,
                                            ini_dict=ini_dict,
-                                           ini_At=At,
-                                           ini_Bt=Bt,
+                                           ini_At = At,
+                                           ini_Bt = Bt,
                                            iterations=self.iterations,
                                            sub_iterations=2,
                                            ini_history=ini_history,
@@ -641,6 +618,7 @@ class Tweets_Reconstructor_OCPDL():
 
             t += 1
             # print('Current iteration %i out of %i' % (t, self.iterations))
+
 
         # self.W = self.ntf.loading
         self.sequential_dict = seq_dict
@@ -699,13 +677,14 @@ def condense_topic_keywords(topics_freqs, num_keywords=5):
     return topics_freqs
 
 
+
 def heatmap(
-        data,
-        x_tick_labels=None,
-        x_label="",
-        y_tick_labels=None,
-        y_label="",
-        figsize=(8, 10),
+    data,
+    x_tick_labels=None,
+    x_label="",
+    y_tick_labels=None,
+    y_label="",
+    figsize=(8, 10),
 ):
     """Plot heatmap.
 
@@ -718,10 +697,11 @@ def heatmap(
         ax
     """
     fig = plt.figure(figsize=figsize)
-    ax = sns.heatmap(data, cbar_kws=dict(use_gridspec=False, location="top"))
+    ax = sns.heatmap(data, cbar_kws = dict(use_gridspec=False,location="top"))
 
     cbar = ax.collections[0].colorbar
     cbar.ax.tick_params(labelsize=18)
+
 
     plt.xticks(fontsize=16, rotation=45)
     plt.yticks(np.arange(0, data.shape[0], 1.0) + 0.5, fontsize=22)
@@ -739,7 +719,6 @@ def heatmap(
 
     return fig, ax
 
-
 def save_figure(fig, filepath=None, bbox_inches="tight", pad_inches=0.1):
     """Save figure in filepath."""
     if filepath is None:
@@ -748,7 +727,6 @@ def save_figure(fig, filepath=None, bbox_inches="tight", pad_inches=0.1):
     fig.savefig(filepath + ".png", **fig_kwargs)
     fig.savefig(filepath + ".pdf", **fig_kwargs)
     # plt.close()
-
 
 def shaded_latex_topics(freq_lists, word_lists, min_shade=0.6):
     """Generate latex table with keywords shaded by frequency value.
@@ -801,3 +779,79 @@ def shaded_latex_topics(freq_lists, word_lists, min_shade=0.6):
 
     colored_string += "\\end{tabular}"
     return colored_string
+
+
+def display_heatmap_topics(W, X_words, savepath):
+    # We consider a TFIDF weight tensor of dimension timeframes-by-features-by-documents
+    # - features (list): list of all features (words) extracted from documents
+    # - retweet_counts (list): list containing the number of retweets for each corresponding tweet in corpus.
+    # - X (ndarray): TFIDF weight tensor of dimension timeframes-by-features-by-documents
+
+    U0 = W.get('U0')  ### dict for time mode
+    U1 = W.get('U1')  ### dict for words mode (topics)
+    U2 = W.get('U2')  ### dict for tweets mode
+
+    r = U0.shape[1]
+    #data_name = "top1000daily"
+    #folder_name = "Tweets_dictionary"
+
+    # Condense topic representations.
+    topics_freqs = []
+    for i, topic in enumerate(U1.T):
+        topics_freqs.append({X_words[i]: topic[i] for i in reversed(topic.argsort()[-r:])})
+        print(
+            "Topic {}: {}".format(i, ', '.join(x for x in reversed(np.array(X_words)[topic.argsort()[-10:]]))))
+
+    print('topics_freqs', topics_freqs.itmes())
+
+    topics_freqs = condense_topic_keywords(topics_freqs)
+    num_keywords = 5
+
+    sns.set(style="whitegrid", context="talk")
+
+
+    # Make word and frequency lists for each topic.
+    sorted_topics = [
+        sorted(topic.items(), key=lambda item: item[1], reverse=True)
+        for topic in topics_freqs
+    ]
+    word_lists = [[item[0] for item in topic[:num_keywords]] for topic in sorted_topics]
+    freq_lists = [[item[1] for item in topic[:num_keywords]] for topic in sorted_topics]
+    # Print latex table with shaded topics.
+    #table_filename = "NMF_{}_topic_keywords_{}_{}_topics.tex".format(
+    #    folder_name, data_name, r
+    #)
+    # table_filepath = os.path.join(overleaf_dir, "Tables", table_filename)
+    # with open(table_filepath, "w") as file:
+    #   file.write(plotting.shaded_latex_topics(freq_lists, word_lists))
+    # topic_latex = shaded_latex_topics(freq_lists, word_lists, min_shade=0.6)
+    # print('!!! topic_latex', topic_latex)
+
+    num_time_slices = U0.shape[0]
+
+    avg_topics_over_time = U0.T
+    for i in np.arange(U0.shape[0]):
+        avg_topics_over_time[:,i] = avg_topics_over_time[:,i]/np.sum(avg_topics_over_time[:,i])
+
+    # #### Visualize topic distributions
+    start = datetime.datetime(2020, 2, 1, 0)
+    dates = [i * datetime.timedelta(days=1) + start for i in range(num_time_slices)]
+    date_strs = [date.strftime("%m-%d") for date in dates]
+    # y_tick_labels = ["{}: {}".format(word_lists[i][0:2], i + 1) for i in range(r)]
+    y_tick_labels = [str(word_lists[i][0])+ ", " +str(word_lists[i][1]) + ", "  +str(word_lists[i][2])  +" "+ str(i+1) for i in range(r)]
+
+    fig, ax = heatmap(
+        avg_topics_over_time,
+        x_tick_labels=date_strs,
+        x_label="Date",
+        y_tick_labels=y_tick_labels,
+        y_label="Topic",
+    )
+    # Save figure.
+    fig_filename = "NMF_tweet_representation_of_topics_{}_{}_topics".format(
+        data_name, r
+    )
+    # fig_filepath = "Tweets_dictionary/" + fig_filename
+    fig_filepath = savepath
+    save_figure(fig, filepath=fig_filepath)
+    plt.show()

@@ -1,37 +1,49 @@
+from utils.BCD_DR import ALS_DR
 from utils.ocpdl import Online_CPDL
 import numpy as np
-from PIL import Image
 import matplotlib.pyplot as plt
 import pickle
+from itertools import cycle
 from scipy.interpolate import interp1d
 
 plt.rcParams['font.family'] = 'serif'
 plt.rcParams['font.serif'] = ['Times New Roman'] + plt.rcParams['font.serif']
 
 
-def Out_tensor(loading):
-    ### given loading, take outer product of respected columns to get CPdict
-    CPdict = {}
-    n_modes = len(loading.keys())
-    n_components = loading.get('U0').shape[1]
-    print('!!! n_modes', n_modes)
-    print('!!! n_components', n_components)
+def initialize_loading(data_shape=[10,10,10], n_components=5, scale=1):
+    ### loading = python dict of [U1, U2, \cdots, Un], each Ui is I_i x R array
+    loading = {}
+    for i in np.arange(len(data_shape)):  # n_modes = X.ndim -1 where -1 for the last `batch mode'
+        loading.update({'U' + str(i): scale*np.random.rand(data_shape[i], n_components)})
+    return loading
 
+def out(loading, drop_last_mode=False):
+    ### given loading, take outer product of respected columns to get CPdict
+    ### Use drop_last_mode for ALS
+    CPdict = {}
+    n_components = loading.get("U0").shape[1]
     for i in np.arange(n_components):
         A = np.array([1])
-        for j in np.arange(n_modes):
+        if drop_last_mode:
+            n_modes_multiplied = len(loading.keys()) - 1
+        else:
+            n_modes_multiplied = len(loading.keys())  # also equals self.X_dim - 1
+        for j in np.arange(n_modes_multiplied):
             loading_factor = loading.get('U' + str(j))  ### I_i X n_components matrix
             # print('loading_factor', loading_factor)
             A = np.multiply.outer(A, loading_factor[:, i])
         A = A[0]
         CPdict.update({'A' + str(i): A})
-    print('!!! CPdict.keys()', CPdict.keys())
+    return CPdict
 
-    X = np.zeros(shape=CPdict.get('A0').shape)
-    for j in np.arange(len(loading.keys())):
-        X += CPdict.get('A' + str(j))
+def Out_tensor(loading):
+    ### given loading, take outer product of respected columns to get CPdict
+    CPdict = out(loading, drop_last_mode=False)
+    recons = np.zeros(CPdict.get('A0').shape)
+    for j in np.arange(len(CPdict.keys())):
+        recons += CPdict.get('A' + str(j))
 
-    return X
+    return recons
 
 
 def ALS_run(X,
@@ -43,21 +55,24 @@ def ALS_run(X,
             search_radius_const=1000,
             if_compute_recons_error=True,
             save_folder='Output_files',
+            subsample_ratio = None,
             output_results=True):
-    OCPDL = Online_CPDL(X=X,
+    ALSDR = ALS_DR(X=X,
                         n_components=n_components,
                         ini_loading=None,
                         ini_A=None,
                         ini_B=None,
                         alpha=regularizer)
 
-    result_dict = OCPDL.ALS(iter=iter,
+    result_dict = ALSDR.ALS(iter=iter,
                             ini_loading=ini_loading,
                             beta=beta,
-                            search_radius_const=search_radius_const,
+                            search_radius_const=None,
                             if_compute_recons_error=if_compute_recons_error,
                             save_folder=save_folder,
+                            subsample_ratio=subsample_ratio,
                             output_results=output_results)
+
     return result_dict
 
 
@@ -69,20 +84,19 @@ def MU_run(X,
            if_compute_recons_error=True,
            save_folder='Output_files',
            output_results=True):
-    OCPDL = Online_CPDL(X=X,
+    ALSDR = ALS_DR(X=X,
                         n_components=n_components,
                         ini_loading=None,
                         ini_A=None,
                         ini_B=None,
                         alpha=regularizer)
 
-    result_dict = OCPDL.MU(iter=iter,
+    result_dict = ALSDR.MU(iter=iter,
                            ini_loading=ini_loading,
                            if_compute_recons_error=if_compute_recons_error,
                            save_folder=save_folder,
                            output_results=output_results)
     return result_dict
-
 
 def OCPDL_run(X,
               n_components=10,
@@ -90,7 +104,9 @@ def OCPDL_run(X,
               regularizer=0,
               ini_loading=None,
               batch_size=100,
+              beta=None,
               mode_2be_subsampled=-1,
+              search_radius_const = None,
               if_compute_recons_error=True,
               save_folder='Output_files',
               output_results=True):
@@ -102,198 +118,187 @@ def OCPDL_run(X,
                         ini_A=None,
                         ini_B=None,
                         alpha=regularizer,
+                        beta=beta,
                         subsample=True)
 
     result_dict = OCPDL.train_dict(mode_2be_subsampled=mode_2be_subsampled,
                                    if_compute_recons_error=if_compute_recons_error,
+                                   search_radius_const = search_radius_const,
                                    save_folder=save_folder,
                                    output_results=output_results)
     return result_dict
 
+def plot_benchmark_errors(full_result_list, save_path):
 
-def plot_benchmark_errors(ALS_result0, ALS_result1, ALS_result2, MU_result, name=1, errorbar=True, save_folder=None):
-    n_components = ALS_result1.get('n_components')
+    time_records = []
+    errors = []
+    f_interpolated_list = []
 
-    if not errorbar:
-        ALS_errors = ALS_result0.get('time_error')
-        MU_errors = MU_result.get('time_error')
+    # max duration and time records
+    x_all_max = 0
+    for i in np.arange(len(full_result_list)):
+        errors0 = full_result_list[i].get('timed_errors_trials')
+        x_all_max = max(x_all_max, max(errors0[:, :, -1][:, 0]))
 
-        fig, axs = plt.subplots(nrows=1, ncols=1, figsize=(8, 6))
-        axs.plot(ALS_errors[0, :], ALS_errors[1, :], label='ALS')
-        axs.plot(OCLDP_errors[0, :], OCLDP_errors[1, :], label='OCPDL')
-        axs.set_xlabel('Elapsed time (s)')
-        axs.set_ylabel('Reconstruction error')
-        plt.suptitle('Reconstruction error benchmarks')
-        axs.legend()
-        plt.tight_layout()
-        plt.suptitle('Reconstruction error benchmarks', fontsize=13)
-        plt.subplots_adjust(0.1, 0.1, 0.9, 0.9, 0.00, 0.00)
-        plt.savefig('Output_files/benchmark_plot' + '_' + str(name))
-        # plt.show()
-    else:
-        ALS_errors0 = ALS_result0.get('timed_errors_trials')  # shape (# trials) x (2 for time, error) x (iterations)
-        ALS_errors1 = ALS_result1.get('timed_errors_trials')  # shape (# trials) x (2 for time, error) x (iterations)
-        ALS_errors2 = ALS_result2.get('timed_errors_trials')
-        MU_errors = MU_result.get('timed_errors_trials')
-        n_trials = ALS_errors1.shape[0]
+    x_all = np.linspace(0, x_all_max, num=101, endpoint=True)
 
-        print('!! ALS_errors0.shape', ALS_errors0.shape)
-        print('!! ALS_errors1.shape', ALS_errors1.shape)
-        print('!! ALS_errors2.shape', ALS_errors2.shape)
-        print('!! MU_errors.shape', MU_errors.shape)
-        print('!!!!! MU_errors', MU_errors)
+    for i in np.arange(len(full_result_list)):
+        errors0 = full_result_list[i].get('timed_errors_trials')
+        time_records.append(x_all[x_all < min(errors0[:, :, -1][:, 0])])
 
-        x_all_max = max(min(ALS_errors1[:, :, -1][:, 0]), min(MU_errors[:, :, -1][:, 0]),
-                        min(ALS_errors2[:, :, -1][:, 0]))
-        x_all = np.linspace(0, x_all_max, num=101, endpoint=True)
-        x_all_ALS0 = x_all[x_all < min(ALS_errors0[:, :, -1][:, 0])]
-        x_all_ALS1 = x_all[x_all < min(ALS_errors1[:, :, -1][:, 0])]
-        x_all_ALS2 = x_all[x_all < min(ALS_errors2[:, :, -1][:, 0])]
-        x_all_MU = x_all[x_all < min(MU_errors[:, :, -1][:, 0])]
+    # interpolate data and have common carrier
+    for i in np.arange(len(full_result_list)):
+        errors0 = full_result_list[i].get('timed_errors_trials')
+        f0_interpolated = []
+        for j in np.arange(errors0.shape[0]): # trials for same setting
+            f0 = interp1d(errors0[j, 0, :], errors0[j, 1, :], fill_value="extrapolate")
+            x_all_0 = time_records[i]
+            f0_interpolated.append(f0(x_all_0))
+        f0_interpolated = np.asarray(f0_interpolated)
+        f_interpolated_list.append(f0_interpolated)
 
-        x_all_common = x_all_ALS1[range(np.round(len(x_all_ALS1) // 1.1).astype(int))]
-        # x_all_MU = x_all_common
+    # make figure
+    search_radius_const = full_result_list[0].get('search_radius_const')
+    color_list = ['g', 'k', 'r', 'c', 'b']
+    marker_list = ['*', '|', 'x', 'o', '+']
+    fig, axs = plt.subplots(nrows=1, ncols=1, figsize=(6, 5))
+    for i in np.arange(len(full_result_list)):
+        f0_interpolated = f_interpolated_list[i]
+        f_avg0 = np.sum(f0_interpolated, axis=0) / f0_interpolated.shape[0]  ### axis-0 : trials
+        f_std0 = np.std(f0_interpolated, axis=0)
 
-        print('!!! x_all', x_all)
-        # interpolate data and have common carrier
+        x_all_0 = time_records[i]
+        color = color_list[i % len(color_list)]
+        marker = marker_list[i % len(marker_list)]
 
-        f_ALS_interpolated0 = []
-        f_ALS_interpolated1 = []
-        f_ALS_interpolated2 = []
-        f_MU_interpolated = []
-
-        for i in np.arange(MU_errors.shape[0]):
-            f_ALS0 = interp1d(ALS_errors0[i, 0, :], ALS_errors0[i, 1, :], fill_value="extrapolate")
-            f_ALS_interpolated0.append(f_ALS0(x_all_ALS0))
-
-            f_ALS1 = interp1d(ALS_errors1[i, 0, :], ALS_errors1[i, 1, :], fill_value="extrapolate")
-            f_ALS_interpolated1.append(f_ALS1(x_all_ALS1))
-
-            f_ALS2 = interp1d(ALS_errors2[i, 0, :], ALS_errors2[i, 1, :], fill_value="extrapolate")
-            f_ALS_interpolated2.append(f_ALS2(x_all_ALS2))
-
-            f_MU = interp1d(MU_errors[i, 0, :], MU_errors[i, 1, :], fill_value="extrapolate")
-            f_MU_interpolated.append(f_MU(x_all_MU))
-
-        f_ALS_interpolated0 = np.asarray(f_ALS_interpolated0)
-        f_ALS_interpolated1 = np.asarray(f_ALS_interpolated1)
-        f_ALS_interpolated2 = np.asarray(f_ALS_interpolated2)
-        f_MU_interpolated = np.asarray(f_MU_interpolated)
-
-        f_ALS_avg0 = np.sum(f_ALS_interpolated0, axis=0) / f_ALS_interpolated0.shape[0]  ### axis-0 : trials
-        f_ALS_std0 = np.std(f_ALS_interpolated0, axis=0)
-        # print('!!! f_ALS_std0', f_ALS_std0)
-
-        f_ALS_avg1 = np.sum(f_ALS_interpolated1, axis=0) / f_ALS_interpolated1.shape[0]  ### axis-0 : trials
-        f_ALS_std1 = np.std(f_ALS_interpolated1, axis=0)
-        # print('!!! f_ALS_std1', f_ALS_std1)
-
-        f_ALS_avg2 = np.sum(f_ALS_interpolated2, axis=0) / f_ALS_interpolated2.shape[0]  ### axis-0 : trials
-        f_ALS_std2 = np.std(f_ALS_interpolated2, axis=0)
-        # print('!!! f_ALS_std2', f_ALS_std2)
-
-        f_MU_avg = np.sum(f_MU_interpolated, axis=0) / f_MU_interpolated.shape[0]  ### axis-0 : trials
-        f_MU_std = np.std(f_MU_interpolated, axis=0)
-        print('!!! f_MU_avg', f_MU_avg)
-        print('!!! f_MU_std', f_MU_std)
-
-        fig, axs = plt.subplots(nrows=1, ncols=1, figsize=(8, 6))
-
-        markers, caps, bars = axs.errorbar(x_all_ALS0, f_ALS_avg0, yerr=f_ALS_std0,
-                                           fmt='r-', marker='*', label='ALS_DR-0.5', errorevery=5)
-        axs.fill_between(x_all_ALS0, f_ALS_avg0 - f_ALS_std0, f_ALS_avg0 + f_ALS_std0, facecolor='r', alpha=0.1)
-
-        markers, caps, bars = axs.errorbar(x_all_ALS1, f_ALS_avg1, yerr=f_ALS_std1,
-                                           fmt='b-', marker='*', label='ALS_DR-1', errorevery=5)
-        axs.fill_between(x_all_ALS1, f_ALS_avg1 - f_ALS_std1, f_ALS_avg1 + f_ALS_std1, facecolor='b', alpha=0.1)
-
-        markers, caps, bars = axs.errorbar(x_all_ALS2, f_ALS_avg2, yerr=f_ALS_std2,
-                                           fmt='c-', marker='*', label='ALS', errorevery=5)
-        axs.fill_between(x_all_ALS2, f_ALS_avg2 - f_ALS_std2, f_ALS_avg2 + f_ALS_std2, facecolor='c', alpha=0.1)
-
-        markers, caps, bars = axs.errorbar(x_all_MU, f_MU_avg, yerr=f_MU_std,
-                                           fmt='g-', marker='x', label='MU', errorevery=5)
-        axs.fill_between(x_all_MU, f_MU_avg - f_MU_std, f_MU_avg + f_MU_std, facecolor='g', alpha=0.2)
-        axs.set_xlim(0, min(max(x_all_ALS0), max(x_all_ALS1), max(x_all_ALS2), max(x_all_MU)))
-
-        [bar.set_alpha(0.5) for bar in bars]
-        # axs.set_ylim(0, np.maximum(np.max(f_OCPDL_avg + f_OCPDL_std), np.max(f_ALS_avg + f_ALS_std)) * 1.1)
-        axs.set_xlabel('Elapsed time (s)', fontsize=14)
-        axs.set_ylabel('Reconstruction error', fontsize=12)
-        plt.suptitle('Reconstruction error benchmarks')
-        axs.legend(fontsize=13)
-        plt.tight_layout()
-        plt.suptitle('Reconstruction error benchmarks', fontsize=13)
-        plt.subplots_adjust(0.1, 0.1, 0.9, 0.9, 0.00, 0.00)
-        if save_folder is None:
-            root = 'Output_files_BCD'
+        result_dict = full_result_list[i]
+        beta = result_dict.get("beta")
+        if (beta is None) and (result_dict.get("method")=="OCPDL"):
+            label0 = result_dict.get("method") + " ($\\beta=$None)"
+        elif (beta is None):
+            label0 = result_dict.get("method")
         else:
-            root = save_folder
+            label0 = result_dict.get("method") + " ($\\beta=${}, $c'=${})".format(beta, search_radius_const)
 
-        plt.savefig(root + '/benchmark_plot_errorbar' + '_ntrials_' + str(n_trials) + "_" + "_ncomps_" + str(
-            n_components) + "_" + str(name))
+        markers, caps, bars = axs.errorbar(x_all_0, f_avg0, yerr=f_std0,
+                                           fmt=color+'-', marker=marker, label=label0, errorevery=5)
+        axs.fill_between(x_all_0, f_avg0 - f_std0, f_avg0 + f_std0, facecolor=color, alpha=0.1)
+
+    # min_max duration
+    x_all_min_max = []
+    for i in np.arange(len(time_records)):
+        x_all_ALS0 = time_records[i]
+        x_all_min_max.append(max(x_all_ALS0))
+
+    x_all_min_max = min(x_all_min_max)
+    axs.set_xlim(0, x_all_min_max)
 
 
-def main():
-    loading = {}
-    n_components = 5
-    iter = 40
-    num_repeat = 10
-    save_folder = "Output_files_BCD_new1"
-    # save_folder = "Output_files_BCD_twitter0"
+    [bar.set_alpha(0.5) for bar in bars]
+    # axs.set_ylim(0, np.maximum(np.max(f_OCPDL_avg + f_OCPDL_std), np.max(f_ALS_avg + f_ALS_std)) * 1.1)
+    axs.set_xlabel('Elapsed time (s)', fontsize=13)
+    axs.set_ylabel('Relative recons. error', fontsize=13)
+    data_name = full_result_list[0].get('data_name')
+    title = data_name
+    plt.suptitle(title, fontsize=13)
+    axs.legend(fontsize=13)
+    plt.tight_layout()
+    plt.subplots_adjust(0.1, 0.1, 0.9, 0.9, 0.00, 0.00)
 
-    synthetic_data = True
-    run_ALS = True
-    run_MU = False
-    run_OCPDL = False
-    plot_errors = True
-    search_radius_const = 1000000
-    file_identifier = 'new1'
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+        
+    plt.savefig(save_path)
+
+
+def main(n_components = 5,
+        iter = 30,
+        num_repeat = 10,
+        save_folder = "Output_files/JMLR_OCPDL3",
+        data_name = "Synthetic", # "Synthetic" or "Twitter"
+        run_ALS = True,
+        run_MU = True,
+        run_OCPDL = True,
+        plot_errors = True):
+
+
 
     # Load data
-    file_name = "Synthetic"
-    if synthetic_data:
+    loading = {}
+
+    # Load data
+    if data_name == "Synthetic":
+        scale = 0.0001
         np.random.seed(1)
-        U0 = np.random.rand(100, n_components)
+        #U0 = np.random.rand(20, 1*n_components)
+        U0 = np.random.randint(2,size=[100, 2*n_components])
         np.random.seed(2)
-        U1 = np.random.rand(100, n_components)
+        U1 = np.random.rand(100, 2*n_components)
         np.random.seed(3)
-        U2 = np.random.rand(1000, n_components)
+        U2 = np.random.rand(5000, 2*n_components)
 
         loading.update({'U0': U0})
         loading.update({'U1': U1})
         loading.update({'U2': U2})
-        X = Out_tensor(loading)
-    else:
+
+        X = Out_tensor(loading) * scale
+
+    elif data_name == "Twitter":
         path = "Data/Twitter/top_1000_daily/data_tensor_top1000.pickle"
         dict = pickle.load(open(path, "rb"))
         X = dict[1]
         file_name = "Twitter"
+        #X = np.swapaxes(X, 1, 2)
 
-    file_name = file_name + "_" + file_identifier
+    elif data_name == "Headlines":
+        path = "Data/headlines_tensor.pickle"
+        dict = pickle.load(open(path, "rb"))
+        X = dict
+        file_name = "Headlines"
+
+    elif data_name == "20Newsgroups":
+        path = "Data/20news_tfidf_tensor.pickle"
+        dict = pickle.load(open(path, "rb"))
+        X = dict * 100
+        file_name = "20Newsgroups"
+
+
+
 
     print('X.shape', X.shape)
 
+    # X = 10 * X/np.linalg.norm(X)
+
+    search_radius_const = 10
+    # search_radius_const = int(np.linalg.norm(X.reshape(-1,1),1))
+    print('search_radius_const', search_radius_const)
+
+    loading_list = []
+    scale_X = 1/np.linalg.norm(X.reshape(-1,1))
+    for i in np.arange(num_repeat):
+        loading_list.append(initialize_loading(data_shape=X.shape, n_components=n_components, scale=scale_X))
+
+    full_result_list = []
+
     if run_ALS:
-        beta_list = [1 / 2, 1, None]
-        # beta_list = [None]
+        # beta_list = [1 / 2, 1, None]
+        beta_list = [None]
         for beta in beta_list:
             print('!!! ALS initialized with beta:', beta)
             list_full_timed_errors = []
-            iter1 = iter
-            if beta is not None:
-                iter1 = iter * 1.5
-
+            results_dict = {}
             for i in np.arange(num_repeat):
+
                 result_dict_ALS = ALS_run(X,
                                           n_components=n_components,
-                                          iter=iter1,
+                                          iter=iter,
                                           regularizer=0,
                                           # inverse regularizer on time mode (to promote long-lasting topics),
                                           # no regularizer on on words and tweets
-                                          ini_loading=None,
+                                          ini_loading=loading_list[i],
                                           beta=beta,
-                                          search_radius_const=search_radius_const,
+                                          search_radius_const=None,
+                                          subsample_ratio=None,
                                           if_compute_recons_error=True,
                                           save_folder=save_folder,
                                           output_results=True)
@@ -303,21 +308,35 @@ def main():
 
             timed_errors_trials = np.asarray(
                 list_full_timed_errors)  # shape (# trials) x (2 for time, error) x (iterations)
-            result_dict_ALS.update({'timed_errors_trials': timed_errors_trials})
 
-            np.save(save_folder + "/ALS_result_" + "beta_" + str(beta) + "_" + str(file_name), result_dict_ALS)
-            print('result_dict_ALS.keys()', result_dict_ALS.keys())
-            result_dict_ALS = {}
+            if beta is None:
+                results_dict.update({"method": "ALS"})
+            else:
+                results_dict.update({"method": "BCD-DR"})
+            results_dict.update({"data_name": data_name})
+            results_dict.update({"beta": beta})
+            results_dict.update({"search_radius_const": search_radius_const})
+            results_dict.update({"n_components": n_components})
+            results_dict.update({"iterations": iter})
+            results_dict.update({"num_trials": num_repeat})
+            results_dict.update({'timed_errors_trials': timed_errors_trials})
+            full_result_list.append(results_dict.copy())
+
+            save_path = save_folder + "/full_result_list_" + str(data_name)
+            np.save(save_path, full_result_list)
+            # print('full_result_list:', full_result_list)
 
     if run_MU:
-        list_full_timed_errors = []
+        results_dict = {}
         print('!!! MU initialized')
+        list_full_timed_errors = []
+        iter1 = iter
         for i in np.arange(num_repeat):
             result_dict_MU = MU_run(X,
                                     n_components=n_components,
-                                    iter=iter * 2,
+                                    iter=iter1,
                                     regularizer=0,
-                                    ini_loading=None,
+                                    ini_loading=loading_list[i],
                                     if_compute_recons_error=True,
                                     save_folder=save_folder,
                                     output_results=True)
@@ -327,46 +346,84 @@ def main():
 
         timed_errors_trials = np.asarray(
             list_full_timed_errors)  # shape (# trials) x (2 for time, error) x (iterations)
-        result_dict_MU.update({'timed_errors_trials': timed_errors_trials})
 
-        np.save(save_folder + "/MU_result_" + str(file_name), result_dict_MU)
-        print('result_dict_MU.keys()', result_dict_MU.keys())
+        results_dict.update({"method": "MU"})
+        results_dict.update({"data_name": data_name})
+        results_dict.update({"n_components": n_components})
+        results_dict.update({"search_radius_const": search_radius_const})
+        results_dict.update({"iterations": iter1})
+        results_dict.update({"num_trials": num_repeat})
+        results_dict.update({'timed_errors_trials': timed_errors_trials})
+        full_result_list.append(results_dict.copy())
+
+        save_path = save_folder + "/full_result_list_" + str(data_name)
+        np.save(save_path, full_result_list)
+        # print('full_result_list:', full_result_list)
 
     if run_OCPDL:
-        print('!!! OCPDL initialized')
-        list_full_timed_errors = []
-        for i in np.arange(num_repeat):
-            result_dict_OCPDL = OCPDL_run(X,
+        beta_list = [3/4, 1, None]
+        #beta_list = [3/4]
+        for beta in beta_list:
+            print('!!! OCPDL initialized with beta:', beta)
+            list_full_timed_errors = []
+            results_dict = {}
+            for i in np.arange(num_repeat):
+
+                result_dict_OCPDL = OCPDL_run(X,
                                           n_components=n_components,
                                           iter=iter,
                                           regularizer=0,
-                                          ini_loading=None,
-                                          mode_2be_subsampled=-1,
+                                          batch_size = int(X.shape[-1]/5),
+                                          #batch_size = 10,
+                                          # inverse regularizer on time mode (to promote long-lasting topics),
+                                          # no regularizer on on words and tweets
+                                          ini_loading=loading_list[i].copy(),
+                                          beta=beta,
+                                          search_radius_const=search_radius_const,
                                           if_compute_recons_error=True,
+                                          #mode_2be_subsampled=1,
                                           save_folder=save_folder,
                                           output_results=True)
+                time_error = result_dict_OCPDL.get('time_error')
+                print('!!! time_error', time_error)
+                list_full_timed_errors.append(time_error.copy())
+                # print('!!! list_full_timed_errors', len(list_full_timed_errors))
 
-            time_error = result_dict_OCPDL.get('time_error')
-            list_full_timed_errors.append(time_error.copy())
+            timed_errors_trials = np.asarray(
+                list_full_timed_errors)  # shape (# trials) x (2 for time, error) x (iterations)
 
-        timed_errors_trials = np.asarray(
-            list_full_timed_errors)  # shape (# trials) x (2 for time, error) x (iterations)
-        result_dict_OCPDL.update({'timed_errors_trials': timed_errors_trials})
-        print('!!! list_full_timed_errors', len(list_full_timed_errors))
+            results_dict.update({"method": "OCPDL"})
+            results_dict.update({"data_name": data_name})
+            results_dict.update({"beta": beta})
+            results_dict.update({"search_radius_const": search_radius_const})
+            results_dict.update({"n_components": n_components})
+            results_dict.update({"iterations": iter})
+            results_dict.update({"num_trials": num_repeat})
+            results_dict.update({'timed_errors_trials': timed_errors_trials})
+            full_result_list.append(results_dict.copy())
 
-        np.save(save_folder + "/OCPDL_result_" + str(file_name), result_dict_OCPDL)
-        print('result_dict_OCPDL.keys()', result_dict_OCPDL.keys())
+            save_path = save_folder + "/full_result_list_" + str(data_name)
+
+            if not os.path.exists(save_path):
+                os.makedirs(save_path)
+
+            np.save(save_path, full_result_list)
+            # print('full_result_list:', full_result_list)
+
 
     if plot_errors:
-        save_filename = file_name + ".npy"
+        full_result_list = np.load(save_folder + "/full_result_list_" + str(data_name) + ".npy", allow_pickle=True)
+        full_result_list = full_result_list[::-1]
+        n_trials = full_result_list[0].get("num_trials")
+        n_components = full_result_list[0].get('n_components')
+        search_radius_const = full_result_list[0].get('search_radius_const')
+        data_name = full_result_list[0].get('data_name')
 
-        ALS_result0 = np.load(save_folder + '/ALS_result_beta_0.5_' + save_filename, allow_pickle=True).item()
-        ALS_result1 = np.load(save_folder + '/ALS_result_beta_1_' + save_filename, allow_pickle=True).item()
-        ALS_result2 = np.load(save_folder + '/ALS_result_beta_None_' + save_filename, allow_pickle=True).item()
+        save_path = save_folder + "/full_result_error_plot" + '_ntrials_' + str(n_trials) + "_" + "_ncomps_" + str(
+            n_components) + "_src_" + str(search_radius_const) + "_" + str(data_name) + ".pdf"
 
-        MU_result = np.load(save_folder + '/MU_result_' + save_filename, allow_pickle=True).item()
-        plot_benchmark_errors(ALS_result0, ALS_result1, ALS_result2, MU_result, name=file_name, errorbar=True,
-                              save_folder=save_folder)
+        plot_benchmark_errors(full_result_list, save_path=save_path)
+        print('!!! plot saved')
 
 
 if __name__ == '__main__':
