@@ -5,7 +5,7 @@ Generalizes CP-decomposition for tensors, dictionary learning algorithm for vect
 
 ![](Figures/fig1.png)
 ![](Figures/fig2.png)
-![](Figures/fig3.png)
+![](Figures/fig4.png)
 
 ## References
 
