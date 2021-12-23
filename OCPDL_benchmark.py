@@ -276,9 +276,8 @@ def main(n_components = 5,
         file_name = "Twitter"
 
     elif data_name == "20Newsgroups":
-        # in order to generate the tensor pickle file (~8GB),
-        # get [abcnews-date-text.csv (60.2MB)] data folder
-        # and headlines_preprocessing.py
+        # Get 20news_tfidf_tensor.pickle from https://github.com/lara-kassab/dynamic-tensor-topic-modeling/tree/main/data
+        # and place it in Data folder before running this code.
         path = "Data/20news_tfidf_tensor.pickle"
         dict = pickle.load(open(path, "rb"))
         X = dict
@@ -476,18 +475,6 @@ def generate_figures():
         plot_errors = True,
         search_radius_const_list=[1,10,100,1000])
 
-    # 20Newsgroups
-    main(n_components = 5,
-        iter = 40,
-        num_repeat = 2,
-        save_folder = "Output_files/JMLR_OCPDL1",
-        data_name = "20Newsgroups", # "Synthetic" or "Twitter"
-        run_ALS = True,
-        run_MU = True,
-        run_OCPDL = True,
-        plot_errors = True,
-        search_radius_const_list=[1,10,100,1000])
-
     # Headlines
     main(n_components = 5,
         iter = 30,
@@ -499,6 +486,22 @@ def generate_figures():
         run_OCPDL = True,
         plot_errors = True,
         search_radius_const_list=[10])
+
+    """
+    # 20Newsgroups
+    # Get 20news_tfidf_tensor.pickle from https://github.com/lara-kassab/dynamic-tensor-topic-modeling/tree/main/data
+    # and place it in Data folder before running this code.
+    main(n_components = 5,
+        iter = 40,
+        num_repeat = 2,
+        save_folder = "Output_files/JMLR_OCPDL1",
+        data_name = "20Newsgroups", # "Synthetic" or "Twitter"
+        run_ALS = True,
+        run_MU = True,
+        run_OCPDL = True,
+        plot_errors = True,
+        search_radius_const_list=[1,10,100,1000])
+    """
 
     """
     # Twitter (This requires to get data_tensor_top1000.pickle (~3GB).)
