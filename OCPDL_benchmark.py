@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 import pickle
 from itertools import cycle
 from scipy.interpolate import interp1d
+import os
+from headlines_preprocessing import generate_tensor
 
 plt.rcParams['font.family'] = 'serif'
 plt.rcParams['font.serif'] = ['Times New Roman'] + plt.rcParams['font.serif']
@@ -110,6 +112,7 @@ def OCPDL_run(X,
               if_compute_recons_error=True,
               save_folder='Output_files',
               output_results=True):
+
     OCPDL = Online_CPDL(X=X,
                         batch_size=batch_size,
                         iterations=iter,
@@ -128,11 +131,12 @@ def OCPDL_run(X,
                                    output_results=output_results)
     return result_dict
 
-def plot_benchmark_errors(full_result_list, save_path):
+def plot_benchmark_errors(full_result_list, save_folder):
 
     time_records = []
     errors = []
     f_interpolated_list = []
+    search_radius_const_list = []
 
     # max duration and time records
     x_all_max = 0
@@ -146,6 +150,13 @@ def plot_benchmark_errors(full_result_list, save_path):
         errors0 = full_result_list[i].get('timed_errors_trials')
         time_records.append(x_all[x_all < min(errors0[:, :, -1][:, 0])])
 
+    for i in np.arange(len(full_result_list)):
+        c = full_result_list[i].get('search_radius_const')
+        if c is not None:
+            search_radius_const_list.append(c)
+    search_radius_const_list = list(set(search_radius_const_list))
+    print('search_radius_const_list', search_radius_const_list)
+
     # interpolate data and have common carrier
     for i in np.arange(len(full_result_list)):
         errors0 = full_result_list[i].get('timed_errors_trials')
@@ -158,84 +169,99 @@ def plot_benchmark_errors(full_result_list, save_path):
         f_interpolated_list.append(f0_interpolated)
 
     # make figure
-    search_radius_const = full_result_list[0].get('search_radius_const')
-    color_list = ['g', 'k', 'r', 'c', 'b']
-    marker_list = ['*', '|', 'x', 'o', '+']
-    fig, axs = plt.subplots(nrows=1, ncols=1, figsize=(6, 5))
-    for i in np.arange(len(full_result_list)):
-        f0_interpolated = f_interpolated_list[i]
-        f_avg0 = np.sum(f0_interpolated, axis=0) / f0_interpolated.shape[0]  ### axis-0 : trials
-        f_std0 = np.std(f0_interpolated, axis=0)
-
-        x_all_0 = time_records[i]
-        color = color_list[i % len(color_list)]
-        marker = marker_list[i % len(marker_list)]
-
-        result_dict = full_result_list[i]
-        beta = result_dict.get("beta")
-        if (beta is None) and (result_dict.get("method")=="OCPDL"):
-            label0 = result_dict.get("method") + " ($\\beta=$None)"
-        elif (beta is None):
-            label0 = result_dict.get("method")
-        else:
-            label0 = result_dict.get("method") + " ($\\beta=${}, $c'=${})".format(beta, search_radius_const)
-
-        markers, caps, bars = axs.errorbar(x_all_0, f_avg0, yerr=f_std0,
-                                           fmt=color+'-', marker=marker, label=label0, errorevery=5)
-        axs.fill_between(x_all_0, f_avg0 - f_std0, f_avg0 + f_std0, facecolor=color, alpha=0.1)
-
-    # min_max duration
-    x_all_min_max = []
-    for i in np.arange(len(time_records)):
-        x_all_ALS0 = time_records[i]
-        x_all_min_max.append(max(x_all_ALS0))
-
-    x_all_min_max = min(x_all_min_max)
-    axs.set_xlim(0, x_all_min_max)
+    for c in search_radius_const_list:
+        plot_idx = 0
+        color_list = ['g', 'k', 'r', 'c', 'b']
+        marker_list = ['*', '|', 'x', 'o', '+']
+        fig, axs = plt.subplots(nrows=1, ncols=1, figsize=(6, 5))
+        for i in np.arange(len(full_result_list)):
+            result_dict = full_result_list[i]
+            search_radius_const = result_dict.get('search_radius_const')
 
 
-    [bar.set_alpha(0.5) for bar in bars]
-    # axs.set_ylim(0, np.maximum(np.max(f_OCPDL_avg + f_OCPDL_std), np.max(f_ALS_avg + f_ALS_std)) * 1.1)
-    axs.set_xlabel('Elapsed time (s)', fontsize=13)
-    axs.set_ylabel('Relative recons. error', fontsize=13)
-    data_name = full_result_list[0].get('data_name')
-    title = data_name
-    plt.suptitle(title, fontsize=13)
-    axs.legend(fontsize=13)
-    plt.tight_layout()
-    plt.subplots_adjust(0.1, 0.1, 0.9, 0.9, 0.00, 0.00)
+            if not ((result_dict.get("method") == "OCPDL") and (c != search_radius_const)):
+                print('search_radius_const', search_radius_const)
+                f0_interpolated = f_interpolated_list[i]
+                f_avg0 = np.sum(f0_interpolated, axis=0) / f0_interpolated.shape[0]  ### axis-0 : trials
+                f_std0 = np.std(f0_interpolated, axis=0)
 
-    if not os.path.exists(save_path):
-        os.makedirs(save_path)
-        
-    plt.savefig(save_path)
+                x_all_0 = time_records[i]
+                color = color_list[plot_idx % len(color_list)]
+                marker = marker_list[plot_idx % len(marker_list)]
+                plot_idx += 1
 
+                beta = result_dict.get("beta")
+                if (beta is None) and (result_dict.get("method")=="OCPDL"):
+                    label0 = result_dict.get("method") + " ($\\beta=$None)"
+                elif (beta is None):
+                    label0 = result_dict.get("method")
+                else:
+                    label0 = result_dict.get("method") + " ($\\beta=${}, $c'=${})".format(beta, search_radius_const)
+
+                markers, caps, bars = axs.errorbar(x_all_0, f_avg0, yerr=f_std0,
+                                                   fmt=color+'-', marker=marker, label=label0, errorevery=5)
+                axs.fill_between(x_all_0, f_avg0 - f_std0, f_avg0 + f_std0, facecolor=color, alpha=0.1)
+
+                # min_max duration
+                x_all_min_max = []
+                for i in np.arange(len(time_records)):
+                    x_all_ALS0 = time_records[i]
+                    x_all_min_max.append(max(x_all_ALS0))
+
+                x_all_min_max = min(x_all_min_max)
+                axs.set_xlim(0, x_all_min_max)
+
+
+                [bar.set_alpha(0.5) for bar in bars]
+                # axs.set_ylim(0, np.maximum(np.max(f_OCPDL_avg + f_OCPDL_std), np.max(f_ALS_avg + f_ALS_std)) * 1.1)
+                axs.set_xlabel('Elapsed time (s)', fontsize=13)
+                axs.set_ylabel('Relative recons. error', fontsize=13)
+                data_name = full_result_list[0].get('data_name')
+                title = data_name
+                plt.suptitle(title, fontsize=13)
+                axs.legend(fontsize=13)
+                plt.tight_layout()
+                plt.subplots_adjust(0.15, 0.1, 0.9, 0.9, 0.00, 0.00)
+
+
+        # file_name
+        n_trials = full_result_list[0].get("num_trials")
+        n_components = full_result_list[0].get('n_components')
+        search_radius_const = c
+        data_name = full_result_list[0].get('data_name')
+        save_path = save_folder + "/full_result_error_plot" + '_ntrials_' + str(n_trials) + "_" + "_ncomps_" + str(
+            n_components) + "_src_" + str(search_radius_const) + "_" + str(data_name) + ".pdf"
+
+        directory = os.path.dirname(save_path)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+
+        plt.savefig(save_path)
 
 def main(n_components = 5,
-        iter = 30,
+        iter = 10,
         num_repeat = 10,
         save_folder = "Output_files/JMLR_OCPDL3",
         data_name = "Synthetic", # "Synthetic" or "Twitter"
         run_ALS = True,
         run_MU = True,
         run_OCPDL = True,
-        plot_errors = True):
-
-
+        plot_errors = True,
+        search_radius_const_list = [1,10,100,1000]):
 
     # Load data
     loading = {}
 
-    # Load data
     if data_name == "Synthetic":
-        scale = 0.0001
+        scale = 0.01
         np.random.seed(1)
         #U0 = np.random.rand(20, 1*n_components)
-        U0 = np.random.randint(2,size=[100, 2*n_components])
+        #U0 = np.random.randint(2,size=[20, 5*n_components])
+        U0 = np.random.rand(100, 10*n_components)
         np.random.seed(2)
-        U1 = np.random.rand(100, 2*n_components)
+        U1 = np.random.rand(100, 10*n_components)
         np.random.seed(3)
-        U2 = np.random.rand(5000, 2*n_components)
+        U2 = np.random.rand(100, 10*n_components)
 
         loading.update({'U0': U0})
         loading.update({'U1': U1})
@@ -248,30 +274,34 @@ def main(n_components = 5,
         dict = pickle.load(open(path, "rb"))
         X = dict[1]
         file_name = "Twitter"
-        #X = np.swapaxes(X, 1, 2)
-
-    elif data_name == "Headlines":
-        path = "Data/headlines_tensor.pickle"
-        dict = pickle.load(open(path, "rb"))
-        X = dict
-        file_name = "Headlines"
 
     elif data_name == "20Newsgroups":
+        # in order to generate the tensor pickle file (~8GB),
+        # get [abcnews-date-text.csv (60.2MB)] data folder
+        # and headlines_preprocessing.py
         path = "Data/20news_tfidf_tensor.pickle"
         dict = pickle.load(open(path, "rb"))
-        X = dict * 100
+        X = dict
         file_name = "20Newsgroups"
 
-
-
+    elif data_name == "Headlines":
+        # in order to generate the tensor pickle file (~8GB),
+        # first read [abcnews-date-text.csv (60.2MB)] from data folder
+        # and generate tf-idf tensor (~8GB)
+        #path = "Data/20news_tfidf_tensor.pickle"
+        #dict = pickle.load(open(path, "rb"))
+        #X = dict
+        full_tensor = generate_tensor("Data/abcnews-date-text.csv", if_save=False)
+        X = full_tensor[1] # shape [203, 7000, 700]
+        file_name = "20Newsgroups"
 
     print('X.shape', X.shape)
 
     # X = 10 * X/np.linalg.norm(X)
 
-    search_radius_const = 10
+    #search_radius_const = 100
+    #search_radius_const_list = [1,10,100]
     # search_radius_const = int(np.linalg.norm(X.reshape(-1,1),1))
-    print('search_radius_const', search_radius_const)
 
     loading_list = []
     scale_X = 1/np.linalg.norm(X.reshape(-1,1))
@@ -315,7 +345,7 @@ def main(n_components = 5,
                 results_dict.update({"method": "BCD-DR"})
             results_dict.update({"data_name": data_name})
             results_dict.update({"beta": beta})
-            results_dict.update({"search_radius_const": search_radius_const})
+            #results_dict.update({"search_radius_const": search_radius_const})
             results_dict.update({"n_components": n_components})
             results_dict.update({"iterations": iter})
             results_dict.update({"num_trials": num_repeat})
@@ -323,6 +353,9 @@ def main(n_components = 5,
             full_result_list.append(results_dict.copy())
 
             save_path = save_folder + "/full_result_list_" + str(data_name)
+            directory = os.path.dirname(save_path)
+            if not os.path.exists(directory):
+                os.makedirs(directory)
             np.save(save_path, full_result_list)
             # print('full_result_list:', full_result_list)
 
@@ -350,81 +383,139 @@ def main(n_components = 5,
         results_dict.update({"method": "MU"})
         results_dict.update({"data_name": data_name})
         results_dict.update({"n_components": n_components})
-        results_dict.update({"search_radius_const": search_radius_const})
+        #results_dict.update({"search_radius_const": search_radius_const})
         results_dict.update({"iterations": iter1})
         results_dict.update({"num_trials": num_repeat})
         results_dict.update({'timed_errors_trials': timed_errors_trials})
         full_result_list.append(results_dict.copy())
 
         save_path = save_folder + "/full_result_list_" + str(data_name)
+        directory = os.path.dirname(save_path)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
         np.save(save_path, full_result_list)
         # print('full_result_list:', full_result_list)
 
     if run_OCPDL:
-        beta_list = [3/4, 1, None]
-        #beta_list = [3/4]
-        for beta in beta_list:
-            print('!!! OCPDL initialized with beta:', beta)
-            list_full_timed_errors = []
-            results_dict = {}
-            for i in np.arange(num_repeat):
+        # search_radius_const_list = [1, 10, 100, 1000]
+        #np.random.seed(2)
+        for c in search_radius_const_list:
+            print('search_radius_const', c)
+            beta_list = [3/4, 1, None]
+            #beta_list = [3/4]
+            for beta in beta_list:
+                print('!!! OCPDL initialized with beta:', beta)
+                list_full_timed_errors = []
+                results_dict = {}
+                for i in np.arange(num_repeat):
+                    result_dict_OCPDL = OCPDL_run(X,
+                                              n_components=n_components,
+                                              iter=iter,
+                                              regularizer=0,
+                                              batch_size = int(X.shape[-1]/5),
+                                              #batch_size = 10,
+                                              # inverse regularizer on time mode (to promote long-lasting topics),
+                                              # no regularizer on on words and tweets
+                                              ini_loading=loading_list[i].copy(),
+                                              beta=beta,
+                                              search_radius_const=c,
+                                              if_compute_recons_error=True,
+                                              #mode_2be_subsampled=1,
+                                              save_folder=save_folder,
+                                              output_results=True)
+                    time_error = result_dict_OCPDL.get('time_error')
+                    print('!!! time_error', time_error)
+                    list_full_timed_errors.append(time_error.copy())
+                    # print('!!! list_full_timed_errors', len(list_full_timed_errors))
 
-                result_dict_OCPDL = OCPDL_run(X,
-                                          n_components=n_components,
-                                          iter=iter,
-                                          regularizer=0,
-                                          batch_size = int(X.shape[-1]/5),
-                                          #batch_size = 10,
-                                          # inverse regularizer on time mode (to promote long-lasting topics),
-                                          # no regularizer on on words and tweets
-                                          ini_loading=loading_list[i].copy(),
-                                          beta=beta,
-                                          search_radius_const=search_radius_const,
-                                          if_compute_recons_error=True,
-                                          #mode_2be_subsampled=1,
-                                          save_folder=save_folder,
-                                          output_results=True)
-                time_error = result_dict_OCPDL.get('time_error')
-                print('!!! time_error', time_error)
-                list_full_timed_errors.append(time_error.copy())
-                # print('!!! list_full_timed_errors', len(list_full_timed_errors))
+                timed_errors_trials = np.asarray(
+                    list_full_timed_errors)  # shape (# trials) x (2 for time, error) x (iterations)
 
-            timed_errors_trials = np.asarray(
-                list_full_timed_errors)  # shape (# trials) x (2 for time, error) x (iterations)
+                results_dict.update({"method": "OCPDL"})
+                results_dict.update({"data_name": data_name})
+                results_dict.update({"beta": beta})
+                results_dict.update({"search_radius_const": c})
+                results_dict.update({"n_components": n_components})
+                results_dict.update({"iterations": iter})
+                results_dict.update({"num_trials": num_repeat})
+                results_dict.update({'timed_errors_trials': timed_errors_trials})
+                full_result_list.append(results_dict.copy())
 
-            results_dict.update({"method": "OCPDL"})
-            results_dict.update({"data_name": data_name})
-            results_dict.update({"beta": beta})
-            results_dict.update({"search_radius_const": search_radius_const})
-            results_dict.update({"n_components": n_components})
-            results_dict.update({"iterations": iter})
-            results_dict.update({"num_trials": num_repeat})
-            results_dict.update({'timed_errors_trials': timed_errors_trials})
-            full_result_list.append(results_dict.copy())
+                save_path = save_folder + "/full_result_list_" + str(data_name)
+                directory = os.path.dirname(save_path)
+                if not os.path.exists(directory):
+                    os.makedirs(directory)
 
-            save_path = save_folder + "/full_result_list_" + str(data_name)
-
-            if not os.path.exists(save_path):
-                os.makedirs(save_path)
-
-            np.save(save_path, full_result_list)
-            # print('full_result_list:', full_result_list)
-
+                np.save(save_path, full_result_list)
+                # print('full_result_list:', full_result_list)
 
     if plot_errors:
         full_result_list = np.load(save_folder + "/full_result_list_" + str(data_name) + ".npy", allow_pickle=True)
         full_result_list = full_result_list[::-1]
-        n_trials = full_result_list[0].get("num_trials")
-        n_components = full_result_list[0].get('n_components')
-        search_radius_const = full_result_list[0].get('search_radius_const')
-        data_name = full_result_list[0].get('data_name')
+        #n_trials = full_result_list[0].get("num_trials")
+        #n_components = full_result_list[0].get('n_components')
+        #search_radius_const = full_result_list[0].get('search_radius_const')
+        #data_name = full_result_list[0].get('data_name')
 
-        save_path = save_folder + "/full_result_error_plot" + '_ntrials_' + str(n_trials) + "_" + "_ncomps_" + str(
-            n_components) + "_src_" + str(search_radius_const) + "_" + str(data_name) + ".pdf"
+        #save_path = save_folder + "/full_result_error_plot" + '_ntrials_' + str(n_trials) + "_" + "_ncomps_" + str(
+        #   n_components) + "_src_" + str(search_radius_const) + "_" + str(data_name) + ".pdf"
 
-        plot_benchmark_errors(full_result_list, save_path=save_path)
+        plot_benchmark_errors(full_result_list, save_folder=save_folder)
         print('!!! plot saved')
 
+def generate_figures():
+    # synthetic
+    main(n_components = 5,
+        iter = 10,
+        num_repeat = 5,
+        save_folder = "Output_files/JMLR_OCPDL1",
+        data_name = "Synthetic", # "Synthetic" or "Twitter"
+        run_ALS = True,
+        run_MU = True,
+        run_OCPDL = True,
+        plot_errors = True,
+        search_radius_const_list=[1,10,100,1000])
+
+    # 20Newsgroups
+    main(n_components = 5,
+        iter = 40,
+        num_repeat = 2,
+        save_folder = "Output_files/JMLR_OCPDL1",
+        data_name = "20Newsgroups", # "Synthetic" or "Twitter"
+        run_ALS = True,
+        run_MU = True,
+        run_OCPDL = True,
+        plot_errors = True,
+        search_radius_const_list=[1,10,100,1000])
+
+    # Headlines
+    main(n_components = 5,
+        iter = 30,
+        num_repeat = 10,
+        save_folder = "Output_files/JMLR_OCPDL1",
+        data_name = "Headlines", # "Synthetic" or "Twitter"
+        run_ALS = True,
+        run_MU = True,
+        run_OCPDL = True,
+        plot_errors = True,
+        search_radius_const_list=[10])
+
+    """
+    # Twitter (This requires to get data_tensor_top1000.pickle (~3GB).)
+    # Refer to https://github.com/lara-kassab/dynamic-tensor-topic-modeling
+    # Also available upon request (hlyu@math.wisc.edu)
+    main(n_components = 5,
+        iter = 30,
+        num_repeat = 10,
+        save_folder = "Output_files/JMLR_OCPDL1",
+        data_name = "Twitter", # "Synthetic" or "Twitter"
+        run_ALS = True,
+        run_MU = True,
+        run_OCPDL = True,
+        plot_errors = True,
+        search_radius_const_list=[10])
+    """
 
 if __name__ == '__main__':
-    main()
+    # main()
+    generate_figures()

@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import tensorly as tl
 from sklearn.decomposition import SparseCoder
 import time
+import os
 from tqdm import trange
 
 DEBUG = False

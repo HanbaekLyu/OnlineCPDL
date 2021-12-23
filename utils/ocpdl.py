@@ -11,6 +11,7 @@ from tensorly import unfold as tl_unfold
 from tensorly.decomposition import parafac
 from sklearn.decomposition import SparseCoder
 import time
+import os
 from tqdm import trange
 
 DEBUG = False
@@ -371,8 +372,9 @@ class Online_CPDL():
         if save_folder is not None:
 
             newpath = save_folder + "/OCPDL_result"
-            if not os.path.exists(newpath):
-                os.makedirs(newpath)
+            directory = os.path.dirname(newpath)
+            if not os.path.exists(directory):
+                os.makedirs(directory)
 
             np.save(newpath, result_dict)
 
