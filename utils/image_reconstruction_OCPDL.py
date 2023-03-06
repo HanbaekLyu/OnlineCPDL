@@ -186,7 +186,7 @@ class Image_Reconstructor_OCPDL():
             ### color mode
             fig, axs = plt.subplots(nrows=self.n_components, ncols=1, figsize=(2, 6),
                                     subplot_kw={'xticks': [], 'yticks': []})
-            for ax, i in zip(axs.flat, range(self.n_components)):
+            for ax, i in zip(axs.flat, range(self.n_components)): # type: ignore
                 ax.imshow(U1[:, i].reshape(1, -1), cmap="gray", interpolation='nearest')
 
             plt.tight_layout()
@@ -202,8 +202,8 @@ class Image_Reconstructor_OCPDL():
         fig, axs = plt.subplots(nrows=6, ncols=3, figsize=(3, 6),
                                 subplot_kw={'xticks': [], 'yticks': []})
 
-        for ax, i in zip(axs.flat, range(self.n_components)):
-            patch = CPdict.get('A'+str(i)).reshape(k, k, 3)
+        for ax, i in zip(axs.flat, range(self.n_components)): # type: ignore
+            patch = CPdict.get('A'+str(i)).reshape(k, k, 3) # type: ignore
             print('patch.color', patch[:,:,])
             ax.imshow(patch / np.max(patch))
 
@@ -224,7 +224,7 @@ class Image_Reconstructor_OCPDL():
             fig, axs = plt.subplots(nrows=num_rows, ncols=num_cols, figsize=(6, 6),
                                     subplot_kw={'xticks': [], 'yticks': []})
 
-        for ax, i in zip(axs.flat, range(self.n_components)):
+        for ax, i in zip(axs.flat, range(self.n_components)): # type: ignore
             if color_mode:
                 ax.imshow(W[:, i].reshape(-1, 1))
             elif not learn_joint_dict:
@@ -281,7 +281,7 @@ class Image_Reconstructor_OCPDL():
                                       ini_A=At,
                                       ini_B=Bt,
                                       alpha=self.alpha,
-                                      history=self.ntf.history,
+                                      history=self.ntf.history, # type: ignore
                                       subsample=False)
                 # out of "sample_size" columns in the data matrix, sample "batch_size" randomly and train the dictionary
                 # for "iterations" iterations
@@ -311,7 +311,7 @@ class Image_Reconstructor_OCPDL():
         k = self.patch_size
         W = np.zeros(shape=(3*k**2, self.n_components))
         for j in np.arange(self.n_components):
-            W[:, j] = CPdict.get('A' + str(j)).reshape(-1, 1)[:, 0]
+            W[:, j] = CPdict.get('A' + str(j)).reshape(-1, 1)[:, 0] # type: ignore
 
         A_matrix = A.reshape(-1, A.shape[1])  # (row, col, 3) --> (3row, col)
         [m, n] = A_matrix.shape

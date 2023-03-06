@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from numpy import linalg as LA
 import tensorly as tl
-from tensorly.tenalg import khatri_rao
+from tensorly.tenalg import khatri_rao # type: ignore
 from tensorly import unfold as tl_unfold
 from tensorly.decomposition import parafac
 from sklearn.decomposition import SparseCoder
@@ -34,10 +34,10 @@ class Online_CPDL():
                  subsample=True):
         '''
         Online CP Dictionary Learning algorithm
-        X: data tensor (n+1 -dimensional) with shape I_1 * I_2 * ... * I_n * I_n+1
+        X: (n+1)-dimensional data tensor with shape I_1 * I_2 * ... * I_n * I_n+1
         Last node considered as the "batch mode"
-        Seeks to find CP dictionary D = [A1, A2, ... , A_R], R=n_components, Ai = rank 1 tensor
-        Such that each slice X[:,:,..,:, j] \approx <D, c> for some c
+        Seeks to find CP dictionary D = [A1, A2, ... , A_R], R = n_components, Ai = rank 1 tensor
+        Such that each slice X[:,:,..,:, j] approx <D, c> for some c
         n_components (int) = r = number of rank-1 CP factors
         iter (int): number of iterations where each iteration is a call to step(...)
         batch_size (int): number random of columns of X that will be sampled during each iteration
@@ -116,7 +116,7 @@ class Online_CPDL():
     def sparse_code_tensor(self, X, CPdict, H0=None, r=None, sparsity=0, sub_iter=[30]):
         '''
         Given data tensor X and CP dictionary CPdict, find sparse code c such that
-        X \approx <CPdict, c>
+        X approx <CPdict, c>
         args:
             X (numpy array): data tensor with dimensions: (I1) x (I2) x ... x (In) x (In+1)
             CPdict (numpy dictionary): [A1, ... AR], R=n_componetns, Ai = rank 1 tensor
@@ -186,7 +186,7 @@ class Online_CPDL():
             for i in np.arange(self.n_modes):
                 if i != j:
                     U = loading.get('U' + str(i))  ### I_{k} x n_components loading matrix
-                    B_r = tl.tenalg.mode_dot(B_r, U[:, r], i)
+                    B_r = tl.tenalg.mode_dot(B_r, U[:, r], i) # type: ignore
                     B_r = np.expand_dims(B_r, axis=i)  ## mode_i product above kills axis i
             B_U[r, :] = B_r.reshape(self.X.shape[j])
         return B_U
@@ -199,7 +199,7 @@ class Online_CPDL():
             A (numpy array): aggregate matrix with dimensions: topics (r) x topics(R)
             B (numpy array): aggregate matrix with dimensions: (I1 ... In) x topics (R)
             r (float): search radius
-          returns:
+        returns:
             loading = [U1', .. , Un'] (numpy dict): each Ui has shape I_i x R
         '''
         # extract matrix dimensions from W
@@ -289,7 +289,7 @@ class Online_CPDL():
                    save_folder=None,
                    if_compute_recons_error=True):
         '''
-        Given data tensor X, learn loading matrices L=[U0, U1, \cdots, Un-1] that gives CPdict = out(L).
+        Given data tensor X, learn loading matrices L=[U0, U1, cdots, Un-1] that gives CPdict = out(L).
         '''
 
         A = self.ini_A
@@ -316,8 +316,8 @@ class Online_CPDL():
                 error = self.compute_recons_error(data=X, loading=loading, compute_last_factor=False)
                 loading.pop("U" + str(len(X.shape)-1), None)
             # error *= normalization
-            time_error = np.append(time_error, np.array([[0, error]]), axis=0)
-            print('!!! Reconstruction error at iteration %i = %f.3' % (0, error))
+            time_error = np.append(time_error, np.array([[0, error]]), axis=0) # type: ignore
+            print('!!! Reconstruction error at iteration %i = %f.3' % (0, error)) # type: ignore
 
         print('loading.keys()', loading.keys())
         loading0 = self.initialize_loading()
@@ -356,8 +356,8 @@ class Online_CPDL():
         if self.subsample and mode_2be_subsampled != -1:
             # Swap back the loading matrices swapped before training
             U_swapped = loading.get(
-                'U' + str(mode_2be_subsampled)).copy()  # This loading matrix needs to go to the last mode
-            U_subsampled = loading.get('U' + str(self.n_modes)).copy()
+                'U' + str(mode_2be_subsampled)).copy()  # This loading matrix needs to go to the last mode # type: ignore
+            U_subsampled = loading.get('U' + str(self.n_modes)).copy() # type: ignore
             loading.update({'U' + str(self.n_modes): U_swapped})
             loading.update({'U' + str(mode_2be_subsampled): U_subsampled})
 
@@ -445,7 +445,7 @@ def update_code_within_radius(X, W, H0, r, alpha=0,
                               subsample_ratio=None, nonnegativity=True,
                               use_line_search=False):
     '''
-    Find \hat{H} = argmin_H ( | X - WH| + alpha|H| ) within radius r from H0
+    Find $$hat{H} = argmin_H ( | X - WH| + alpha|H| )$$ within radius r from H0
     Use row-wise projected gradient descent
     Do NOT sparsecode the whole thing and then project -- instable
     12/5/2020 Lyu

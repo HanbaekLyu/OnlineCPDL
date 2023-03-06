@@ -35,15 +35,15 @@ def main():
             W = reconstructor.train_dict()
             CPdict = reconstructor.out(W)
             print('W', W)
-            print('W.keys()', W.keys())
+            print('W.keys()', W.keys()) # type: ignore
             print('CPdict.keys()', CPdict.keys())
-            print('U0.shape', W.get('U0').shape)
-            print('U1.shape', W.get('U1').shape)
+            print('U0.shape', W.get('U0').shape) # type: ignore
+            print('U1.shape', W.get('U1').shape) # type: ignore
 
         display_dictionary = True
 
         if display_dictionary and train_fresh:
-            reconstructor.display_dictionary_CP(W, plot_shape_N_color=False)
+            reconstructor.display_dictionary_CP(W, plot_shape_N_color=False) # type: ignore
         else:
             path = 'Image_dictionary/dict_learned_CPDL_gogh_allfold.npy'
             loading = np.load(path, allow_pickle=True).item()
