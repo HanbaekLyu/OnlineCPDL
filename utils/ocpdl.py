@@ -66,7 +66,9 @@ class Online_CPDL():
             self.ini_A = np.zeros(shape=(n_components, n_components))
         # print('A', self.ini_A)
 
-        if ini_A is not None:
+        # if ini_A is not None:
+        ## Fixed typo
+        if ini_B is not None:
             self.ini_B = ini_B
         else:
             Y = X.take(indices=0, axis=-1)
@@ -211,7 +213,7 @@ class Online_CPDL():
             W1 = loading.get('U' + str(j)).copy()
             for k in np.arange(self.n_components):
                 for i in np.arange(sub_iter):
-                    # W1[:,k] = W1[:,k] - (1/W1[k, k])*(np.dot(W1, A[:,k]) - B.T[:,k])
+                    # W1[:,k] = W1[:,k] - (1/W1[k, k])*(np.dot(W1, A[:,k]) - B.T[:,k]) #####
                     grad = (np.dot(W1, A_U[:, k]) - B_U[k, :])
                     grad_norm = np.linalg.norm(grad, 2)
                     #step_size = (1 / (((i + 1) ** (1)) * (A_U[k, k] + 1)))
